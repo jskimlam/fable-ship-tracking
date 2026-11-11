@@ -248,7 +248,10 @@
     E.searchByName(q).then(function (r) {
       if (!r.ok) { box.innerHTML = '<div class="empty">' + U.esc(B.errorText(r.error)) + '</div>'; return; }
       if (!r.list.length) { box.innerHTML = '<div class="empty">일치하는 선박이 없습니다. 철자를 확인하거나 IMO 번호로 넣어 주세요.</div>'; return; }
-      box.innerHTML = r.list.slice(0, 12).map(function (x, i) {
+      // 탱커만 추적 대상이므로 탱커를 먼저 보여 준다. 탱커가 하나도 없으면(철자 특이 등) 전체를 보여 준다.
+      var tankers = r.list.filter(function (x) { return /tanker/i.test((x.category || '') + ' ' + (x.type || '')); });
+      var list = tankers.length ? tankers : r.list;
+      box.innerHTML = (tankers.length ? '' : '<div class="empty">탱커가 없어 전체 결과를 보여 줍니다.</div>') + list.slice(0, 12).map(function (x, i) {
         var kind = x.type || ({ tanker: '탱커', cargo: '화물선', fishing: '어선', sailing: '요트', passenger: '여객선' }[x.category] || x.category); // Wingo 는 category, VF 는 type
         var seen = x.lastSeenTs ? '수신 ' + U.ago(x.lastSeenTs, Date.now()) : '';
         return '<button type="button" data-i="' + i + '">' + U.esc(x.name) + '<small>' +
@@ -256,7 +259,7 @@
       }).join('');
       box.onclick = function (ev) {
         var b = ev.target.closest('button');
-        if (b) addAndRefresh(r.list[+b.dataset.i]);
+        if (b) addAndRefresh(list[+b.dataset.i]);
       };
     });
   }
