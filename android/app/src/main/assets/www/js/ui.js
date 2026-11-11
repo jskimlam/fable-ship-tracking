@@ -294,7 +294,7 @@
       '<div class="row"><label>화물</label><div class="cargo-pick" id="cargoPick">' + CARGOS.map(function (c) { return '<button type="button" class="' + (v.cargo === c ? 'on' : '') + '">' + c + '</button>'; }).join('') +
       '<input id="cargoFree" type="text" placeholder="기타" value="' + U.esc(CARGOS.indexOf(v.cargo) < 0 ? v.cargo : '') + '" style="max-width:110px" /></div></div>' +
       '<div class="row"><label>레이캔</label><input id="lcStart" type="date" value="' + U.esc(v.laycanStart) + '" /><input id="lcEnd" type="date" value="' + U.esc(v.laycanEnd) + '" /></div>' +
-      '<div class="row"><label>출항지</label><select id="selOrigin">' + portOptions(v.originUser ? v.originPortId : '', '자동 (' + (vw.originText || '미확인') + ({ track: ', 항적 기준', vf: ', VesselFinder 기록' }[vw.originInfo && vw.originInfo.kind] || '') + ')') + '</select></div>' +
+      '<div class="row"><label>출항지</label><select id="selOrigin">' + portOptions(v.originUser ? v.originPortId : '', '자동 (' + (vw.originText || '미확인') + ({ track: ', 항적 기준', vf: ', VesselFinder 기록', hint: ', 이관값·갱신 전' }[vw.originInfo && vw.originInfo.kind] || '') + ')') + '</select></div>' +
       '<div class="row"><label>목적지</label><select id="selDest">' + portOptions(v.destPortId, '자동 (AIS 목적지: ' + ((v.voyage && v.voyage.destText) || '미확인') + ')') + '</select></div>' +
       '<h4>위치 직접 입력</h4>' +
       '<p class="hint">대리점 통보나 Wingo 화면의 좌표를 옮겨 적으면 실측으로 기록됩니다. 예: 33.0287 / 126.6602</p>' +

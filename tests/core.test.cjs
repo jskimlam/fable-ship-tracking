@@ -255,6 +255,23 @@ test('VF 직전 항만이 목적지와 같고 배가 멀리 있으면 출항지�
   assert.equal(vw.pastEst.length, 0);
 });
 
+test('이전 버전의 고정 출항지는 지우지 않고 예비값으로 남긴다 (갱신 전 표시용)', () => {
+  globalThis.localStorage = { _: {}, getItem(k) { return this._[k] || null; }, setItem(k, v) { this._[k] = v; } };
+  const old = { vessels: [{ id: 'v-1', name: 'OLD', fixes: [], src: {}, voyage: {}, originPortId: 'anping', destPortId: 'yeosu' }], selectedId: 'v-1', settings: {} };
+  globalThis.localStorage.setItem('fst_state_v1', JSON.stringify(old));
+  S.load();
+  const v = S.vessel('v-1');
+  assert.equal(v.originPortId, '');                      // 고정은 풀림
+  assert.equal(v.originHint, 'anping');                  // 예비값으로 보존
+  const vw = E.view(v, NOW);
+  assert.equal(vw.origin.id, 'anping');
+  assert.equal(vw.originInfo.kind, 'hint');
+  v.voyage.lastPortText = 'Kaohsiung, Taiwan';           // 갱신으로 VF 직전 항만이 들어오면 그쪽이 우선
+  assert.equal(E.view(v, NOW).origin.id, 'kaohsiung');
+  S.reset();                                              // 초기 선대도 출항지 예비값을 가진다
+  assert.equal(E.view(S.vessel('v-9288007'), NOW).origin.id, 'anping');
+});
+
 test('시각 유틸: 한국 시간 변환', () => {
   assert.equal(U.fmtKst(Date.UTC(2026, 10, 11, 21, 0)), '11/12(목) 06:00');
   assert.equal(U.kstYmd(Date.UTC(2026, 10, 11, 16, 0), 0), '20261112');

@@ -38,7 +38,8 @@
     function mk(name, imo, o) {
       var v = S.newVessel({ name: name, imo: imo });
       v.id = 'v-' + imo;                             // 피클 때와 같은 IMO 기준 id (PACIFIC SAMBU 는 교정된 IMO 사용)
-      ['mmsi', 'callsign', 'cargo', 'originPortId', 'destPortId'].forEach(function (k) { if (o[k] != null) v[k] = o[k]; });
+      ['mmsi', 'callsign', 'cargo', 'destPortId'].forEach(function (k) { if (o[k] != null) v[k] = o[k]; });
+      if (o.originPortId) v.originHint = o.originPortId;       // 피클 이관 출항지: 갱신 전까지 쓰는 예비값
       if (o.fix) { o.fix.src = 'seed'; v.fixes.push(o.fix); }
       return v;
     }
@@ -79,8 +80,9 @@
     Object.keys(d).forEach(function (k) { if (state.settings[k] == null) state.settings[k] = d[k]; });
     state.vessels.forEach(function (v) {               // 누락 필드 보충
       v.fixes = v.fixes || []; v.src = v.src || {}; v.voyage = v.voyage || {}; v.pilotRows = v.pilotRows || [];
-      // 이전 버전은 VesselFinder 직전 항만을 출항지로 '고정'해 버렸다. 사용자가 고른 값이 아니면 비워서 자동 판단에 맡긴다
-      if (v.originPortId && !v.originUser) v.originPortId = '';
+      // 이전 버전은 출항지를 '고정값'으로 저장했다 (피클 이관값·VesselFinder 직전 항만).
+      // 사용자가 고른 값이 아니면 고정은 풀되, 버리지 않고 가장 낮은 순위의 예비값(originHint)으로 남긴다
+      if (v.originPortId && !v.originUser) { if (!v.originHint) v.originHint = v.originPortId; v.originPortId = ''; }
     });
     if (!state.selectedId && state.vessels[0]) state.selectedId = state.vessels[0].id;
     return state;

@@ -253,8 +253,8 @@
   E.destPort = function (v) {
     return (v.destPortId && R.portById(v.destPortId)) || R.matchPort(v.voyage && v.voyage.destText) || null;
   };
-  // 출항 항만과 그 근거. 우선순위: 사용자가 고른 값 > Wingo 항적의 정지 지점 > VesselFinder 직전 항만
-  // → {port, kind:'user'|'track'|'vf', ts, tsEst, text}
+  // 출항 항만과 그 근거. 우선순위: 사용자가 고른 값 > Wingo 항적의 정지 지점 > VesselFinder 직전 항만 > 예비값(이관값)
+  // → {port, kind:'user'|'track'|'vf'|'hint', ts, tsEst, text}
   E.originInfo = function (v) {
     var vo = v.voyage || {};
     var vfPort = R.matchPort(vo.lastPortText);
@@ -270,6 +270,8 @@
     if (vfPort || vo.lastPortText) {
       return { port: vfPort, kind: 'vf', ts: vo.atdTs || null, tsEst: false, text: (vfPort && vfPort.ko) || vo.lastPortText };
     }
+    var hp = v.originHint && R.portById(v.originHint);  // 마지막 예비값: 피클 이관 출항지 등 (갱신 전 임시)
+    if (hp) return { port: hp, kind: 'hint', ts: null, tsEst: false, text: hp.ko };
     return null;
   };
   E.originPort = function (v) { var o = E.originInfo(v); return o ? o.port : null; };
