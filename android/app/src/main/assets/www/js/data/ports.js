@@ -167,6 +167,14 @@
       rule: '타이중항은 겨울 북동 계절풍 영향을 크게 받습니다.', pilot: null },
 
     /* ---------------- 일본 ---------------- */
+    { id: 'tokuyama', ko: '도쿠야마·구다마쓰', en: 'Tokuyama-Kudamatsu', locode: ['JPTKY'],
+      alias: ['TOKUYAMA', 'KUDAMATSU', 'TOKUYAMAKUDAMATSU', 'TOKUYAMA KUDAMATSU', 'JP TKY', '도쿠야마', '덕산', '토쿠야마'],
+      lat: 34.000, lon: 131.800, approach: [[33.800, 131.550], [33.920, 131.720]],
+      rule: '스오나다를 거쳐 진입하며, 한국 방면은 간몬해협(시모노세키) 통항이 일반적입니다. 간몬해협은 조류가 강해 통항 시간대를 조정하기도 합니다.', pilot: null },
+    { id: 'ube', ko: '우베', en: 'Ube', locode: ['JPUBJ'],
+      alias: ['UBE', 'JP UBJ', '우베'],
+      lat: 33.930, lon: 131.250, approach: [[33.800, 131.300], [33.880, 131.270]],
+      rule: '스오나다 서부에 있어 간몬해협 동쪽 출구에서 가깝습니다.', pilot: null },
     { id: 'chiba', ko: '지바', en: 'Chiba', locode: ['JPCHB'],
       alias: ['CHIBA', 'JP CHB', 'CHB', '지바', '치바'],
       lat: 35.570, lon: 140.050, approach: TOKYO_BAY_IN.concat([[35.52, 139.95]]),

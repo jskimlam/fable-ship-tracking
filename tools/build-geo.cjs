@@ -160,12 +160,34 @@ const NODES = [
   ['TW_STRAIT_C', 24.40, 119.80], ['TW_STRAIT_S', 23.10, 119.10], ['TW_SW', 22.40, 119.90], ['TW_S', 21.50, 120.70],
   ['TW_NE', 25.60, 122.40], ['TW_E', 23.60, 122.10],
   // 일본
-  ['KYUSHU_W', 32.30, 129.00], ['TSUSHIMA_E', 34.10, 130.10], ['TOKARA', 29.80, 130.50], ['TANEGA_E', 30.20, 131.70], ['KYUSHU_SE', 31.20, 132.00],
+  ['KYUSHU_W', 32.30, 129.00], ['TSUSHIMA_E', 34.10, 130.10], ['KANMON_W', 34.02, 130.78], ['SUO_NADA', 33.70, 131.40], ['TOKARA', 29.80, 130.50], ['TANEGA_E', 30.20, 131.70], ['KYUSHU_SE', 31.20, 132.00],
   ['BUNGO_S', 32.50, 132.40], ['SHIKOKU_S', 32.60, 133.80], ['KII_S', 33.20, 135.80], ['ENSHU', 34.20, 137.60],
   ['IZU_S', 34.40, 139.00], ['TOKYO_OUT', 34.75, 139.80], ['BOSO_E', 35.30, 141.20],
   // 남중국해·동남아
   ['SCS_NE', 21.80, 118.00], ['HK_OUT', 21.80, 114.60], ['SCS_N', 19.50, 113.50], ['SCS_C', 15.00, 112.50],
   ['VN_S', 9.50, 109.80], ['SCS_S', 5.00, 106.50], ['SG_E', 1.60, 104.90], ['LUZON_W', 18.50, 119.50]
+];
+
+/* 통항 회랑: 좁은 해협·수도라서 해안 여유 폭 검사로는 절대 못 지나가지만
+ * 실제로는 주요 통항로인 구간. 손으로 찍은 경유점을 그대로 간선으로 등록한다 (여유 폭 검사 면제).
+ * [노드A 이름, 노드B 이름, A→B 방향의 경유점 [위도, 경도] 목록] */
+const CORRIDORS = [
+  // 간몬해협 (시모노세키·모지): 히비키나다 → 스오나다
+  ['KANMON_W', 'SUO_NADA', [
+    [33.995, 130.855],  // 무쓰레지마 북측 서쪽 입구
+    [33.965, 130.905],  // 해협 서부
+    [33.955, 130.945],  // 간몬교 최협부
+    [33.935, 130.963],  // 모지 앞 굴곡
+    [33.905, 131.005],  // 동쪽 출구
+    [33.830, 131.150]   // 스오나다 서부
+  ]],
+  // 스오나다 → 이요나다 → 호요해협(분고수도) → 태평양
+  ['SUO_NADA', 'BUNGO_S', [
+    [33.600, 131.700],  // 히메시마 북측
+    [33.350, 131.900],  // 이요나다 서부
+    [33.100, 131.980],  // 호요해협
+    [32.850, 132.080]   // 분고수도
+  ]]
 ];
 
 const MARGIN = 0.07;                                    // 해안 여유 폭(도) ≈ 4해리
@@ -191,9 +213,24 @@ function main() {
     }
   }
 
-  // 고립 노드 검사
+  // 회랑을 간선으로 등록 (여유 폭 검사 면제, 경유점이 육지에 걸치면 경고만)
+  const nameIdx = {};                                   // 노드 이름 → 번호
+  NODES.forEach((n, i) => { nameIdx[n[0]] = i; });
+  const corridors = [];                                 // [a, b, 거리, 경유점들]
+  for (const [an, bn, via] of CORRIDORS) {
+    const a = nameIdx[an], b = nameIdx[bn];
+    if (a == null || b == null) { console.error('✗ 회랑의 노드 이름이 없음:', an, bn); fail++; continue; }
+    const pts = [[NODES[a][1], NODES[a][2]]].concat(via, [[NODES[b][1], NODES[b][2]]]); // 전체 폴리라인
+    let nm = 0;                                         // 회랑 길이
+    for (let i = 1; i < pts.length; i++) nm += distNm(pts[i - 1], pts[i]);
+    via.forEach((q) => { if (isLand(land, q[0], q[1])) console.warn('! 회랑 경유점이 50m 육지 마스크에 걸림(허용):', an + '-' + bn, q); });
+    corridors.push([a, b, Math.round(nm * 10) / 10, via]);
+  }
+
+  // 고립 노드 검사 (회랑 연결 포함)
   const deg = NODES.map(() => 0);                       // 노드별 연결 수
   for (const e of edges) { deg[e[0]]++; deg[e[1]]++; }
+  for (const c of corridors) { deg[c[0]]++; deg[c[1]]++; }
   NODES.forEach((n, i) => { if (!deg[i]) { console.error('✗ 연결이 없는 노드:', n[0]); fail++; } });
 
   // 항만 외해 진입점 검사 (바다 위인지 + 그래프 노드와 한 곳 이상 직선 연결되는지)
@@ -213,10 +250,10 @@ function main() {
     '(function (root) { root.FST_LAND = ' + JSON.stringify(rings) + ';\n' + tail);
   fs.writeFileSync(path.join(OUT_DIR, 'seagraph.js'),
     head + '/* 해상 항로 그래프: nodes = [이름, 위도, 경도], edges = [노드번호, 노드번호, 거리(해리)] */\n' +
-    '(function (root) { root.FST_SEAGRAPH = ' + JSON.stringify({ maxEdgeNm: MAX_EDGE_NM, margin: MARGIN, nodes: NODES, edges }) + ';\n' + tail);
+    '(function (root) { root.FST_SEAGRAPH = ' + JSON.stringify({ maxEdgeNm: MAX_EDGE_NM, margin: MARGIN, nodes: NODES, edges, corridors }) + ';\n' + tail);
 
   const pts = rings.reduce((s, r) => s + r.length, 0);  // 육지 점 개수
-  console.log(`육지 고리 ${rings.length}개 / 점 ${pts}개, 노드 ${NODES.length}개, 간선 ${edges.length}개, 검증 실패 ${fail}건`);
+  console.log(`육지 고리 ${rings.length}개 / 점 ${pts}개, 노드 ${NODES.length}개, 간선 ${edges.length}개, 회랑 ${corridors.length}개, 검증 실패 ${fail}건`);
   if (fail) process.exit(1);                            // 실패가 있으면 종료 코드 1
 }
 

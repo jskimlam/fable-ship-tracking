@@ -33,8 +33,14 @@
     var g = root.FST_SEAGRAPH || { nodes: [], edges: [], maxEdgeNm: 420 };
     var adj = g.nodes.map(function () { return []; }); // 인접 목록
     g.edges.forEach(function (e) { adj[e[0]].push([e[1], e[2]]); adj[e[1]].push([e[0], e[2]]); });
+    var corr = {};                                     // "노드a|노드b" → a→b 방향 경유점들 (통항 회랑)
+    (g.corridors || []).forEach(function (c) {
+      adj[c[0]].push([c[1], c[2]]);
+      adj[c[1]].push([c[0], c[2]]);
+      corr[c[0] + '|' + c[1]] = c[3];
+    });
     if (g.margin) margin = g.margin;
-    graph = { nodes: g.nodes.map(function (n) { return [n[1], n[2]]; }), adj: adj, maxEdgeNm: g.maxEdgeNm };
+    graph = { nodes: g.nodes.map(function (n) { return [n[1], n[2]]; }), adj: adj, corr: corr, maxEdgeNm: g.maxEdgeNm };
   }
 
   // 점이 육지 안인지 (ray casting)
@@ -114,19 +120,37 @@
     }
     if (dist[E] === Infinity) return [a, b];           // 경로를 못 찾으면 직선으로 돌려준다 (호출부에서 '개략' 표시)
 
-    var pts = [b];                                     // 도착점부터 거꾸로 되짚는다
-    for (var c = prev[E]; c !== S && c >= 0; c = prev[c]) pts.push(graph.nodes[c]);
-    pts.push(a);
-    pts.reverse();
-    var sm = smooth(pts);                              // 꺾임을 줄인 경로
+    var seq = [];                                      // 지나간 노드 번호 (도착 쪽부터)
+    for (var c = prev[E]; c !== S && c >= 0; c = prev[c]) seq.push(c);
+    seq.reverse();                                     // 출발 → 도착 순서로
+
+    var pts = [a];                                     // 경유점을 끼워 가며 경로를 조립한다
+    var locked = {};                                   // 회랑 경유점 위치 (smooth 가 지우면 안 되는 점)
+    for (var k2 = 0; k2 < seq.length; k2++) {
+      if (k2 > 0) {                                    // 직전 노드와 이번 노드 사이가 회랑이면 경유점 삽입
+        var p0 = seq[k2 - 1], p1 = seq[k2];
+        var via = graph.corr[p0 + '|' + p1] ||
+          (graph.corr[p1 + '|' + p0] ? graph.corr[p1 + '|' + p0].slice().reverse() : null); // 반대 방향 회랑
+        if (via) via.forEach(function (q) { locked[pts.length] = true; pts.push(q); });
+      }
+      pts.push(graph.nodes[seq[k2]]);
+    }
+    pts.push(b);
+    var sm = smooth(pts, locked);                      // 꺾임을 줄인 경로 (회랑 경유점은 그대로 유지)
     return U.pathNm(sm) <= U.pathNm(pts) + 0.5 ? sm : pts; // 줄였더니 오히려 길어지면 원래 경로 사용
   };
 
-  // 불필요한 꺾임 제거: 건너뛰어도 바다만 지나면 중간 점을 지운다
-  function smooth(pts) {
+  // 불필요한 꺾임 제거: 건너뛰어도 바다만 지나면 중간 점을 지운다.
+  // locked 에 표시된 점(회랑 경유점)은 반드시 지나간다 — 좁은 해협은 여유 폭 검사가
+  // 우연히 통과해도 실제로는 육지를 스치는 직선이 나올 수 있어서다.
+  function smooth(pts, locked) {
     var out = [pts[0]], i = 0;
     while (i < pts.length - 1) {
-      var j = pts.length - 1;                          // 가장 먼 점부터 시도
+      var lim = pts.length - 1;                        // 이번에 건너뛸 수 있는 한계
+      if (locked) {
+        for (var m = i + 1; m < pts.length - 1; m++) { if (locked[m]) { lim = m; break; } } // 다음 고정점까지만
+      }
+      var j = lim;                                     // 한계 안에서 가장 먼 점부터 시도
       while (j > i + 1 && !R.seaClear(pts[i], pts[j], (i === 0 || j === pts.length - 1) ? 8 : 0)) j--;
       out.push(pts[j]);
       i = j;

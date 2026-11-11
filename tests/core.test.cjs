@@ -145,6 +145,23 @@ test('항로: 외해 구간이 육지를 지나지 않는다', () => {
   }
 });
 
+test('간몬해협 회랑: 스오나다·세토 서부 항로가 규슈를 돌지 않는다', () => {
+  // GOLDEN HANA 사례: 스오나다(도쿠야마 남쪽)에서 울산으로 — 간몬해협(시모노세키) 통과가 정상
+  const cases = [
+    [[33.746, 131.731], 'ulsan', 120, 220],   // 스오나다 → 울산
+    [[35.5, 129.385], 'tokuyama', 130, 230],  // 울산 → 도쿠야마 (실제 약 170해리)
+    [[34.8428, 127.675], 'tokuyama', 200, 330] // 여수 → 도쿠야마
+  ];
+  for (const [pos, pid, lo, hi] of cases) {
+    const pts = R.toPort(pos, R.portById(pid));
+    const nm = U.pathNm(pts);
+    assert.ok(nm > lo && nm < hi, pid + ' 거리 ' + nm);                       // 규슈 남쪽 우회(400해리+)가 아님
+    assert.ok(pts.some((q) => Math.abs(q[0] - 33.955) < 0.02 && Math.abs(q[1] - 130.945) < 0.02),
+      pid + ' 경로가 간몬교 최협부를 지나야 함');
+    assert.ok(Math.min.apply(null, pts.map((q) => q[0])) > 33.0, pid + ' 가 규슈 남쪽으로 내려감'); // 분고수도 우회 아님
+  }
+});
+
 test('항로: 거리 수준이 상식적이다', () => {
   const nm = (pos, pid) => U.pathNm(R.toPort(pos, R.portById(pid)));
   const a = nm([22.99, 120.15], 'yeosu'); assert.ok(a > 780 && a < 950, '안핑→여수 ' + a);
