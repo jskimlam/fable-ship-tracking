@@ -26,18 +26,18 @@
     return [
       mk('SUNRISE SAMBU', '9288007', { mmsi: '440213000', callsign: 'DSNR6', cargo: 'SM', originPortId: 'anping', destPortId: 'yeosu',
         fix: { t: t1, lat: 33.0287, lon: 126.6602, sog: 11.1, cog: 73 } }),
-      mk('MI LAN', '9342047', { cargo: '', originPortId: 'jinshan', destPortId: 'panjin',
+      mk('MI LAN', '9342047', { mmsi: '413378950', callsign: 'BPPB8', cargo: '', originPortId: 'jinshan', destPortId: 'panjin',
         fix: { t: t2, lat: 40.4404, lon: 121.8409, sog: 0.2, cog: 299, timeAssumed: true } }),
       mk('YC COSMOS', '9409364', { mmsi: '441878000', callsign: 'DSRJ2', cargo: '', destPortId: 'yeosu',
         fix: { t: t2, lat: 33.8707, lon: 128.1509, sog: 7.4, cog: 248, timeAssumed: true } }),
-      mk('PACIFIC SAMBU', '9354129', { cargo: 'BD', destPortId: 'yeosu',
+      mk('PACIFIC SAMBU', '9268306', { mmsi: '441312000', cargo: 'BD', destPortId: 'yeosu',
         fix: { t: t2, lat: 33.72, lon: 126.85, sog: 8.4, cog: 15, timeAssumed: true } }),
-      mk('TN IDUN', '9244879', { cargo: '', originPortId: 'daesan', destPortId: 'yeosu',
+      mk('TN IDUN', '9244879', { mmsi: '440437000', callsign: 'D7AT', cargo: '', originPortId: 'daesan', destPortId: 'yeosu',
         fix: { t: t2, lat: 36.6814, lon: 125.9045, sog: 7.9, cog: 190, timeAssumed: true } })
     ];
     function mk(name, imo, o) {
       var v = S.newVessel({ name: name, imo: imo });
-      v.id = 'v-' + imo;
+      v.id = 'v-' + imo;                             // 피클 때와 같은 IMO 기준 id (PACIFIC SAMBU 는 교정된 IMO 사용)
       ['mmsi', 'callsign', 'cargo', 'originPortId', 'destPortId'].forEach(function (k) { if (o[k] != null) v[k] = o[k]; });
       if (o.fix) { o.fix.src = 'seed'; v.fixes.push(o.fix); }
       return v;

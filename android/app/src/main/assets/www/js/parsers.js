@@ -8,9 +8,10 @@
  *   3) 가져온 글자를 여기의 parse* 함수가 숫자·시각으로 해석한다
  * 사이트 화면이 바뀌면 이 파일의 해당 소스 부분만 고치면 된다.
  * 검증 현황 (2026-11-11 실제 페이지 기준)
- *   - VesselFinder 선박 상세·검색 : 검증됨 (무료 화면은 좌표가 1도 단위로만 나옴)
- *   - 여수항도선사회 도선예보     : 검증됨
- *   - 사용자 지정 소스(Wingo 등)  : 범용 규칙. 실제 화면 확인 후 보정 필요
+ *   - Wingo Marine 공개 선박 페이지·검색 : 검증됨 (주 소스. 로그인 불필요, 정밀 좌표·24시간 항적)
+ *   - VesselFinder 선박 상세·검색       : 검증됨 (보조 소스. 직전 항만·출항 시각·AIS ETA 용, 좌표는 1도 단위)
+ *   - 여수항도선사회 도선예보           : 검증됨
+ *   - 사용자 지정 소스                  : 범용 규칙. 실제 화면 확인 후 보정 필요
  * ===================================================================== */
 (function (root) {
   'use strict';
@@ -86,6 +87,139 @@
       ' if(!ch&&(ready||Date.now()-t0>=wait)){grab();}else{setTimeout(tick,300);}' +
       '})();' +
       '})();';
+  };
+
+  /* ================= Wingo Marine (주 소스, 로그인 불필요) ================= */
+  // 공개 선박 페이지: https://wingo-marine.com/ship/{아무 글자}-{MMSI}  → 정식 주소로 자동 이동한다
+  // 페이지 안 <script id="vessel-map-data" type="application/json"> 에
+  //   {position:[위도,경도], rotation:선수방향, track:[[위도,경도]...최근 24시간], port:{lat,lon,name}} 이 들어 있다
+  // 검색: https://wingo-marine.com/api/v1/seo/search?q=선명|IMO|MMSI&limit=10  (사이트 검색창이 쓰는 공개 주소, 키 없음)
+
+  P.WINGO = 'https://wingo-marine.com';
+
+  P.wingoShipUrl = function (mmsi) {
+    return mmsi ? P.WINGO + '/ship/v-' + encodeURIComponent(mmsi) : null;
+  };
+
+  P.wingoSearchUrl = function (q) {
+    return P.WINGO + '/api/v1/seo/search?q=' + encodeURIComponent(q) + '&limit=10';
+  };
+
+  // 선박 페이지에서 지도 데이터와 보이는 글자를 읽어 오는 스크립트
+  P.wingoShipScript = function () {
+    return '(function(){' +
+      'if(window.__FST_RUN)return;window.__FST_RUN=1;var t0=Date.now();' +
+      '(function tick(){' +
+      ' var m=document.getElementById("vessel-map-data");' +
+      ' var ch=/just a moment|잠시만|attention required|보안 확인/i.test(document.title);' +
+      ' if(!ch&&(m||Date.now()-t0>9000)){' +
+      '  window.__FST_OUT=JSON.stringify({title:document.title,url:location.href,map:m?m.textContent:null,' +
+      '   text:(document.body?document.body.innerText:"").slice(0,12000)});' +
+      ' }else{setTimeout(tick,300);}' +
+      '})();' +
+      '})();';
+  };
+
+  // 검색 결과(JSON 이 글자로 표시된 화면)를 읽어 오는 스크립트
+  P.wingoSearchScript = function () {
+    return '(function(){' +
+      'if(window.__FST_RUN)return;window.__FST_RUN=1;var t0=Date.now();' +
+      '(function tick(){' +
+      ' var t=document.body?document.body.innerText:"";' +
+      ' if(/^\\s*\\{/.test(t)||Date.now()-t0>8000){window.__FST_OUT=JSON.stringify({title:document.title,url:location.href,text:t.slice(0,20000)});}' +
+      ' else{setTimeout(tick,300);}' +
+      '})();' +
+      '})();';
+  };
+
+  // 검색 결과 해석 → [{name, mmsi, imo, category, flag, lastSeenTs}]
+  P.parseWingoSearch = function (dump) {
+    if (!dump) return { ok: false, error: 'badjson', list: [] };
+    if (P.isChallenge(dump.title, dump.text)) return { ok: false, error: 'challenge', list: [] };
+    var o;
+    try { o = JSON.parse(String(dump.text || '').trim()); } catch (e) { return { ok: false, error: 'layout', list: [] }; }
+    var list = ((o && o.items) || []).map(function (i) {
+      return {
+        name: String(i.name || '').trim(), mmsi: i.mmsi ? String(i.mmsi) : '', imo: i.imo ? String(i.imo) : '',
+        category: i.category || '', flag: i.flag || '', lastSeenTs: i.lastSeen ? Date.parse(i.lastSeen) : null
+      };
+    }).filter(function (x) { return x.name && x.mmsi; });
+    return { ok: true, list: list };
+  };
+
+  // 검색 결과 중 이 선박에 해당하는 것 고르기: MMSI → IMO → 선명 완전 일치 순
+  P.pickWingoMatch = function (list, v) {
+    var n = U.normName(v.name);
+    return list.filter(function (x) { return v.mmsi && x.mmsi === String(v.mmsi); })[0] ||
+      list.filter(function (x) { return v.imo && x.imo === String(v.imo); })[0] ||
+      list.filter(function (x) { return n && U.normName(x.name) === n; })[0] || null;
+  };
+
+  // "11 Nov 2026, 11:01 UTC" → 타임스탬프
+  P.dayMonYearToTs = function (txt) {
+    var m = String(txt || '').match(/(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    var mon = MONTHS[m[2].toLowerCase()];
+    return mon ? Date.UTC(+m[3], mon - 1, +m[1], +m[4], +m[5]) : null;
+  };
+
+  // 선박 페이지 해석
+  P.parseWingo = function (dump, now) {
+    now = now || Date.now();
+    if (!dump) return { ok: false, error: 'badjson' };
+    if (P.isChallenge(dump.title, dump.text)) return { ok: false, error: 'challenge' };
+    var out = { ok: false };
+    var map = null;
+    try { map = dump.map ? JSON.parse(dump.map) : null; } catch (e) { map = null; }
+    var full = String(dump.text || '').replace(/ /g, ' ');
+    var cut = full.search(/\n\s*About [^\n]+\n|Vessels nearby/);        // 아래쪽 '주변 선박' 목록은 다른 배 정보라 잘라 낸다
+    var t = cut > 0 ? full.slice(0, cut) : full;
+
+    // 정밀 좌표: 지도 데이터 우선, 없으면 화면 글자 "33.9038° N, 128.3128° E"
+    if (map && Array.isArray(map.position) && isFinite(map.position[0]) && isFinite(map.position[1])) {
+      out.lat = +map.position[0]; out.lon = +map.position[1];
+    } else {
+      var g = P.parseGeneric(t);
+      if (g.ok) { out.lat = g.lat; out.lon = g.lon; }
+    }
+    if (out.lat == null) return { ok: false, error: /not found|404/i.test(dump.title || '') ? 'notfound' : 'nopos' };
+
+    out.heading = map && isFinite(map.rotation) ? +map.rotation : null;
+    out.track = (map && Array.isArray(map.track) ? map.track : []).filter(function (q) {
+      return Array.isArray(q) && isFinite(q[0]) && isFinite(q[1]) && Math.abs(q[0]) <= 90 && Math.abs(q[1]) <= 180;
+    }).map(function (q) { return [+q[0], +q[1]]; });
+    out.portNear = map && map.port && map.port.name ? map.port.name : '';
+    out.openSea = !!(map && map.openSea);
+
+    var m;
+    m = (dump.title || '').match(/^(.+?)\s+—\s+Position/);                   // 제목 "YC COSMOS — Position, IMO …"
+    out.name = m ? m[1].trim() : '';
+    m = t.match(/\bIMO\s*(\d{7})/); out.imo = m ? m[1] : '';
+    m = t.match(/\bMMSI\s*(\d{9})/); out.mmsi = m ? m[1] : '';
+    m = t.match(/Call sign\s*([A-Z0-9]{3,8})/); out.callsign = m ? m[1] : '';
+    m = t.match(/Flag\s*\n?\s*(?:[\uD83C][\uDDE6-\uDDFF]){0,2}\s*([A-Za-z][A-Za-z .'-]+)/); out.flag = m ? m[1].trim() : '';
+    m = t.match(/\nType\s*\n\s*([^\n]+)/); out.type = m ? m[1].trim() : '';
+    m = t.match(/Speed\s*([\d.]+)\s*kn/); out.sog = m ? +m[1] : null;
+    m = t.match(/Course\s*(\d{1,3}(?:\.\d+)?)\s*°/); out.cog = m && +m[1] <= 360 ? +m[1] : null;
+    if (out.heading == null) { m = t.match(/Heading\s*(\d{1,3})\s*°/); out.heading = m ? +m[1] : null; }
+    m = t.match(/Draught\s*([\d.]+)\s*m/); out.draught = m ? +m[1] : null;
+    m = t.match(/Deadweight\s*([\d,]+)\s*t/); out.dwt = m ? +m[1].replace(/,/g, '') : null;
+    m = t.match(/Length\s*([\d.]+)\s*m/); out.loa = m ? +m[1] : null;
+    m = t.match(/Last report\s*([^\n]*?\d{1,2}\s+[A-Za-z]{3}\s+\d{4},?\s+\d{1,2}:\d{2}(?:\s*UTC)?)/);
+    out.posTs = m ? P.dayMonYearToTs(m[1]) : null;
+    if (out.posTs && out.posTs > now + 10 * 6e4) out.posTs = now;           // 기기 시계가 틀린 경우의 안전장치
+    // 목적지: "Voyage / Destination / Yeosu, South Korea / AIS: KR YOS / Speed" (줄바꿈이 없는 형태도 허용)
+    m = t.match(/Voyage\s*Destination\s*([\s\S]*?)\s*(?:AIS:\s*([\s\S]*?)\s*)?Speed\s*[\d.]/);
+    if (m) { out.destText = m[1].replace(/\s+/g, ' ').trim(); out.destCode = (m[2] || '').replace(/\s+/g, ' ').trim(); }
+    // ETA 는 선박이 방송할 때만 나온다 ("Not broadcast: ETA." 면 없음)
+    if (!/Not broadcast:[^\n]*ETA/i.test(t)) {
+      m = t.match(/\bETA\s*\n?\s*([^\n]{4,40})/);
+      if (m) { out.etaText = m[1].trim(); out.etaTs = P.dayMonYearToTs(out.etaText) || P.monthDayTimeToTs(out.etaText, now); }
+    }
+    m = t.match(/\n\s*([\d.,]+\s*km\s+[NSEW]{1,3}\s+of\s+[^\n]+)\n/); out.nearText = m ? m[1].trim() : '';
+    out.live = /Live\s*·/.test(t);                                          // "Live ·" = 최근 수신 / "Last seen" = 끊김
+    out.ok = true;
+    return out;
   };
 
   /* ================= VesselFinder 선박 상세 ================= */

@@ -2,9 +2,11 @@
  * engine.js — 갱신(직접 조회) 순서 제어와 항차 상태 계산
  * ---------------------------------------------------------------------
  * [갱신] 사용자가 갱신 버튼을 누르면 선박 한 척에 대해 차례로
- *   ① VesselFinder 선박 상세 : 제원·목적지·AIS ETA·직전 항만·속력·침로·수신 경과
- *   ② 사용자 지정 소스(Wingo 등) : 정밀 좌표 (로그인 세션은 앱 안 브라우저에서 사용자가 직접 유지)
+ *   ① Wingo Marine 공개 선박 페이지 : 정밀 좌표·24시간 항적·속력·침로·목적지 (주 소스, 로그인 불필요)
+ *      MMSI 를 모르면 Wingo 공개 검색으로 먼저 알아낸다
+ *   ② VesselFinder 선박 상세 : 직전 항만·출항 시각·AIS 입력 ETA·제원 (보조 소스, Wingo 에 없는 값)
  *   ③ 목적 항만 도선예보(여수) : 도선사 승선 예정 시각·선석
+ *   ④ 사용자 지정 소스 : 추가 교차 확인용
  *   을 직접 열어 읽는다. 주기적 수신·백그라운드 통신은 없다.
  * [계산] 화면은 view() 가 만든 "항차 상태" 한 덩어리만 보고 그린다.
  *   - 실측(fix)과 추정(추측항법, DR)을 섞지 않고 따로 담는다.
@@ -20,11 +22,17 @@
 
   /* ================= 갱신 ================= */
 
-  // 선명으로 선박 후보 찾기 (VesselFinder 검색 화면 직접 조회)
+  // 선명·번호로 선박 후보 찾기: Wingo 공개 검색 우선, 실패하면 VesselFinder 검색 화면
   E.searchByName = function (name) {
-    return B.scrape({ url: P.vfSearchUrl(name), script: P.vfSearchScript(), timeoutMs: 20000 }).then(function (res) {
-      if (!res.ok) return { ok: false, error: res.error, list: [] };
-      return P.parseVfSearch(res.data);
+    return B.scrape({ url: P.wingoSearchUrl(name), script: P.wingoSearchScript(), timeoutMs: 15000 }).then(function (res) {
+      var r = res.ok ? P.parseWingoSearch(res.data) : { ok: false, error: res.error, list: [] };
+      if (r.ok) { r.src = 'wingo'; return r; }
+      return B.scrape({ url: P.vfSearchUrl(name), script: P.vfSearchScript(), timeoutMs: 20000 }).then(function (res2) {
+        if (!res2.ok) return { ok: false, error: res2.error, list: [] };
+        var r2 = P.parseVfSearch(res2.data);
+        r2.src = 'vf';
+        return r2;
+      });
     });
   };
 
@@ -40,7 +48,39 @@
       step(label, r.ok ? 'ok' : 'fail');
     }
 
-    // ① VesselFinder
+    // ⓪ MMSI 확보: Wingo 선박 주소는 MMSI 기준이라, 없으면 공개 검색으로 알아낸다
+    function doResolve() {
+      if (v.mmsi) return Promise.resolve();
+      var q = v.imo || v.name;
+      if (!q) return Promise.resolve();
+      step('Wingo 검색', 'run');
+      return B.scrape({ url: P.wingoSearchUrl(q), script: P.wingoSearchScript(), timeoutMs: 15000 }).then(function (res) {
+        if (!res.ok) { record('wingo-find', 'Wingo 검색', { ok: false, error: res.error }); return; }
+        var r = P.parseWingoSearch(res.data);
+        if (!r.ok) { record('wingo-find', 'Wingo 검색', r); return; }
+        var hit = P.pickWingoMatch(r.list, v);
+        if (!hit) { record('wingo-find', 'Wingo 검색', { ok: false, error: 'notfound' }); return; }
+        v.mmsi = hit.mmsi;
+        if (!v.imo && hit.imo) v.imo = hit.imo;
+        record('wingo-find', 'Wingo 검색', { ok: true, info: hit.name + ' · MMSI ' + hit.mmsi });
+      });
+    }
+
+    // ① Wingo 선박 페이지 (정밀 좌표·24시간 항적·속력·침로·목적지)
+    function doWingo() {
+      var url = P.wingoShipUrl(v.mmsi);
+      if (!url) { record('wingo', 'Wingo Marine', { ok: false, error: 'noid' }); return Promise.resolve(); }
+      step('Wingo Marine', 'run');
+      return B.scrape({ url: url, script: P.wingoShipScript(), timeoutMs: 25000 }).then(function (res) {
+        if (!res.ok) { record('wingo', 'Wingo Marine', { ok: false, error: P.isChallenge(res.title, '') ? 'challenge' : res.error }); return; }
+        var d = P.parseWingo(res.data, Date.now());
+        if (!d.ok) { record('wingo', 'Wingo Marine', d); return; }
+        applyWingo(v, d);
+        record('wingo', 'Wingo Marine', { ok: true, info: (d.live ? '실시간 수신' : '마지막 수신') + (d.posTs ? ' · ' + U.ago(d.posTs, Date.now()) : '') });
+      });
+    }
+
+    // ② VesselFinder (직전 항만·출항 시각·AIS ETA·제원 보충)
     function doVf() {
       var url = P.vfDetailUrl(v);
       if (!url) { record('vf', 'VesselFinder', { ok: false, error: 'noid' }); return Promise.resolve(); }
@@ -94,7 +134,7 @@
       });
     }
 
-    return doVf().then(doCustom).then(doPilot).then(function () {
+    return doResolve().then(doWingo).then(doVf).then(doCustom).then(doPilot).then(function () {
       v.lastRefresh = now;
       routeCache = {};                                 // 위치가 바뀌었을 수 있으니 항로 캐시 비움
       S.save();
@@ -102,17 +142,62 @@
     });
   };
 
-  // VesselFinder 에서 읽은 값을 선박에 반영
+  // Wingo 에서 읽은 값을 선박에 반영: 정밀 좌표·항적은 실측으로 기록
+  function applyWingo(v, d) {
+    ['imo', 'mmsi', 'callsign', 'type'].forEach(function (k) { if (d[k]) v[k] = d[k]; });
+    if (d.flag && !v.flag) v.flag = d.flag;
+    if (d.dwt) v.dwt = d.dwt;
+    if (d.loa) v.loa = d.loa;
+    if (d.name && !v.name.replace(/^(IMO|MMSI) \d+$/, '')) v.name = d.name.toUpperCase(); // 번호로만 등록했던 배는 선명을 채운다
+    else if (d.name && /^(IMO|MMSI) \d+$/.test(v.name)) v.name = d.name.toUpperCase();
+    var posTs = d.posTs || Date.now();
+    // 24시간 항적: 마지막 수신 시각에서 거슬러 올라가며 대략의 시각을 붙여 실측으로 넣는다 (지나온 길 표시용)
+    if (d.track && d.track.length > 1 && d.sog != null && d.sog > 0.3) {
+      var pts = d.track.filter(function (q, i, arr) {                       // 너무 촘촘한 점은 솎아 낸다
+        return i === 0 || i === arr.length - 1 || U.distNm(arr[i - 1], q) > 0.8;
+      }).slice(-40);
+      var total = U.pathNm(pts);
+      var hours = Math.min(24, total / Math.max(d.sog, 1));                 // 전체 구간을 현재 속력으로 간 것으로 근사
+      var acc = 0;
+      for (var i = 0; i < pts.length; i++) {
+        if (i > 0) acc += U.distNm(pts[i - 1], pts[i]);
+        var t = posTs - (total > 0 ? (total - acc) / total : 0) * hours * 36e5;
+        S.addFix(v, { t: Math.round(t), lat: pts[i][0], lon: pts[i][1], sog: i === pts.length - 1 ? d.sog : null, cog: null, src: 'wingo', timeAssumed: i < pts.length - 1 });
+      }
+    }
+    S.addFix(v, { t: posTs, lat: d.lat, lon: d.lon, sog: d.sog, cog: d.cog != null ? d.cog : d.heading, src: 'wingo' });
+    v.voyage = v.voyage || {};
+    var dest = d.destText || d.destCode;
+    if (dest) v.voyage.destText = dest;                                      // Wingo 목적지가 가장 최신
+    if (d.draught) v.voyage.draught = d.draught;
+    if (d.sog != null) v.voyage.sog = d.sog;
+    if (d.cog != null) v.voyage.cog = d.cog;
+    v.voyage.posTs = posTs;
+    if (d.etaTs) { v.voyage.etaTs = d.etaTs; v.voyage.etaText = d.etaText; v.voyage.etaKind = 'ETA'; }
+    if (d.nearText) v.voyage.nearText = d.nearText;
+    v.voyage.wingoLive = !!d.live;
+    v.voyage.at = Date.now();
+  }
+
+  // VesselFinder 에서 읽은 값을 선박에 반영 (Wingo 가 이미 채운 값은 덮지 않는 보조 소스)
   function applyVf(v, d) {
     ['imo', 'mmsi', 'callsign', 'type', 'flag'].forEach(function (k) { if (d[k]) v[k] = d[k]; });
     if (d.dwt) v.dwt = d.dwt;
     if (d.loa) v.loa = d.loa;
     if (d.name && U.normName(d.name) && !v.name) v.name = d.name.toUpperCase();
-    v.voyage = {
-      destText: d.destText || '', etaText: d.etaText || '', etaTs: d.etaTs || null, etaKind: d.etaKind || '',
-      lastPortText: d.lastPortText || '', atdTs: d.atdTs || null, draught: d.draught, navStatus: d.navStatus || '',
-      sog: d.sog, cog: d.cog, posTs: d.posTs, posAgeText: d.posAgeText || '', satNote: d.satNote || '', at: Date.now()
-    };
+    var vo = v.voyage = v.voyage || {};
+    var hasWingo = !!(v.src && v.src.wingo && v.src.wingo.ok);
+    if (!hasWingo || !vo.destText) { vo.destText = d.destText || vo.destText || ''; }
+    if (d.etaTs && (!hasWingo || !vo.etaTs)) { vo.etaTs = d.etaTs; vo.etaText = d.etaText || ''; vo.etaKind = d.etaKind || ''; }
+    vo.lastPortText = d.lastPortText || vo.lastPortText || '';
+    vo.atdTs = d.atdTs || vo.atdTs || null;
+    if (!hasWingo) {
+      vo.draught = d.draught; vo.sog = d.sog; vo.cog = d.cog; vo.posTs = d.posTs;
+    }
+    vo.navStatus = d.navStatus || '';
+    vo.posAgeText = d.posAgeText || '';
+    vo.satNote = d.satNote || '';
+    vo.at = Date.now();
     if (d.lat != null && d.coarse) {                   // 1도 단위 개략 위치는 항적에 넣지 않고 따로 보관
       v.voyage.coarse = { lat: d.lat, lon: d.lon, ts: d.posTs };
     } else if (d.lat != null && d.posTs) {             // 정밀 좌표가 나온 경우에만 실측으로 기록
@@ -146,6 +231,8 @@
 
   // 소스 id → 화면 표시 이름
   E.srcName = function (src) {
+    if (src === 'wingo') return 'Wingo Marine';
+    if (src === 'wingo-find') return 'Wingo 검색';
     if (src === 'vf') return 'VesselFinder';
     if (src === 'manual') return '수동 입력';
     if (src === 'seed') return '피클 이관값';

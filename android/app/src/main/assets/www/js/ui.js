@@ -244,13 +244,15 @@
     if (/^\d{7}$/.test(q)) { addAndRefresh({ name: 'IMO ' + q, imo: q }); return; }   // IMO 번호면 바로 추가
     if (/^\d{9}$/.test(q)) { addAndRefresh({ name: 'MMSI ' + q, mmsi: q }); return; } // MMSI 번호
     if (!B.available && !B.demo) { box.innerHTML = '<div class="empty">선명 검색은 앱에서만 됩니다. IMO 번호를 넣거나 ‘이름만으로 추가’를 눌러 주세요.</div>'; return; }
-    box.innerHTML = '<div class="empty">VesselFinder 검색 화면을 조회하는 중…</div>';
+    box.innerHTML = '<div class="empty">Wingo 공개 검색을 조회하는 중…</div>';
     E.searchByName(q).then(function (r) {
       if (!r.ok) { box.innerHTML = '<div class="empty">' + U.esc(B.errorText(r.error)) + '</div>'; return; }
       if (!r.list.length) { box.innerHTML = '<div class="empty">일치하는 선박이 없습니다. 철자를 확인하거나 IMO 번호로 넣어 주세요.</div>'; return; }
       box.innerHTML = r.list.slice(0, 12).map(function (x, i) {
+        var kind = x.type || ({ tanker: '탱커', cargo: '화물선', fishing: '어선', sailing: '요트', passenger: '여객선' }[x.category] || x.category); // Wingo 는 category, VF 는 type
+        var seen = x.lastSeenTs ? '수신 ' + U.ago(x.lastSeenTs, Date.now()) : '';
         return '<button type="button" data-i="' + i + '">' + U.esc(x.name) + '<small>' +
-          U.esc([x.type, x.flag, x.imo ? 'IMO ' + x.imo : 'MMSI ' + x.mmsi, x.dwt ? x.dwt + ' DWT' : '', x.built ? x.built + '년 건조' : ''].filter(Boolean).join(' · ')) + '</small></button>';
+          U.esc([kind, x.flag, x.imo ? 'IMO ' + x.imo : 'MMSI ' + x.mmsi, x.dwt ? x.dwt + ' DWT' : '', seen].filter(Boolean).join(' · ')) + '</small></button>';
       }).join('');
       box.onclick = function (ev) {
         var b = ev.target.closest('button');
@@ -299,6 +301,7 @@
       '<h4>최근 실측 기록</h4>' + fixRows +
       '<h4>소스별 조회 결과</h4>' + srcRows +
       '<div class="dlg-foot">' +
+      (v.mmsi ? '<button class="btn ghost" type="button" id="btnOpenWingo">Wingo 원문</button>' : '') +
       (vfUrl ? '<button class="btn ghost" type="button" id="btnOpenVf">VesselFinder 원문</button>' : '') +
       (vw.dest && vw.dest.pilot === 'yspilot' ? '<button class="btn ghost" type="button" id="btnOpenPilot">도선예보 원문</button>' : '') +
       '<button class="btn danger" type="button" id="btnEnd">추적 종료</button>' +
@@ -333,6 +336,7 @@
       renderAll({ fit: true, animate: true });
       return;
     }
+    if (t.id === 'btnOpenWingo') { B.openBrowser(P.wingoShipUrl(v.mmsi), v.name + ' · Wingo Marine'); return; }
     if (t.id === 'btnOpenVf') { B.openBrowser(P.vfDetailUrl(v), v.name + ' · VesselFinder'); return; }
     if (t.id === 'btnOpenPilot') { B.openBrowser(P.YSPILOT_URL, '여수항도선사회 도선예보'); return; }
     if (t.id === 'btnEnd') {
@@ -367,7 +371,7 @@
     }).join('') || '<div class="hint">등록된 소스가 없습니다.</div>';
     $('settingsBox').innerHTML =
       '<h2>설정</h2>' +
-      '<h4>사용자 지정 소스 (Wingo 등)</h4>' +
+      '<h4>사용자 지정 소스 (추가 교차 확인)</h4>' +
       '<p class="hint">선박 한 척의 위치가 나오는 페이지 주소를 등록하면, 갱신할 때 그 페이지를 직접 열어 좌표·속력·침로를 읽습니다. ' +
       '주소에서 선박마다 달라지는 부분은 {IMO} {MMSI} {NAME} {CALLSIGN} 으로 바꿔 넣으세요. ' +
       '로그인이 필요한 사이트는 ‘열기·로그인’에서 한 번 로그인해 두면 됩니다. 비밀번호는 이 앱이 저장하거나 읽지 않습니다.</p>' +
@@ -375,8 +379,8 @@
       '<div class="row"><input id="csName" type="text" placeholder="이름 (예: Wingo)" style="max-width:140px" /><input id="csUrl" type="url" placeholder="https://…/{IMO}" /></div>' +
       '<div class="row"><button class="btn ghost" type="button" id="csAdd">소스 추가</button></div>' +
       '<h4>기본 조회 소스</h4>' +
-      '<p class="hint">① VesselFinder 선박 상세(제원·목적지·AIS ETA·직전 항만, 무료 화면의 좌표는 1도 단위) ② 여수항도선사회 도선예보(목적지가 여수·광양일 때). ' +
-      '모두 갱신 버튼을 눌렀을 때만 페이지를 직접 열어 읽으며, API 키나 상시 수신은 없습니다.</p>' +
+      '<p class="hint">① Wingo Marine 공개 선박 페이지(정밀 좌표·24시간 항적·속력·목적지, 로그인 불필요) ② VesselFinder 상세(직전 항만·출항 시각·AIS ETA 보충) ③ 여수항도선사회 도선예보(목적지가 여수·광양일 때). ' +
+      '모두 갱신 버튼을 눌렀을 때만 페이지를 직접 열어 읽으며, API 키나 상시 수신은 없습니다. Wingo 에 로그인해 두면(선택) 위성 조회 같은 계정 기능도 같은 세션으로 쓸 수 있습니다.</p>' +
       '<div class="row"><button class="btn ghost" type="button" id="openPortmis">PORT-MIS 선박입출항현황 열기</button></div>' +
       '<h4>백업</h4>' +
       '<textarea id="bkText" placeholder="내보내기를 누르면 여기에 표시됩니다. 다른 기기에서 붙여 넣고 가져오기를 누르세요."></textarea>' +

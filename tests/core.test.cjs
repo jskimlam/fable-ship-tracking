@@ -14,6 +14,49 @@ const W = path.join(__dirname, '../android/app/src/main/assets/www/js/');
 const { Util: U, Route: R, Parsers: P, Store: S, Engine: E, Brief: BR } = globalThis.FST;
 const demo = (m) => globalThis.FST_DEMO.find((d) => d.match.includes(m)).data;
 const NOW = Date.UTC(2026, 10, 11, 9, 30);              // 2026-11-11 18:30 KST 로 고정
+const NOW_W = Date.UTC(2026, 10, 11, 11, 14);           // Wingo 캡처 시점 (11:00 UTC 수신 + 14분)
+
+test('Wingo 선박 페이지: 정밀 좌표·항적·수신 시각·목적지를 읽는다', () => {
+  const d = P.parseWingo(demo('wingo-marine.com/ship/v-440213000'), NOW_W);
+  assert.equal(d.ok, true);
+  assert.equal(d.name, 'SUNRISE SAMBU');
+  assert.equal(d.imo, '9288007');
+  assert.equal(d.mmsi, '440213000');
+  assert.equal(d.callsign, 'DSNR6');
+  assert.ok(Math.abs(d.lat - 33.2762) < 1e-4 && Math.abs(d.lon - 127.0482) < 1e-4); // 정밀 좌표
+  assert.equal(d.sog, 10.6);
+  assert.equal(d.cog, 32);
+  assert.equal(d.heading, 35);
+  assert.equal(d.draught, 4.8);
+  assert.equal(d.dwt, 3613);
+  assert.equal(d.destText, 'Yeosu, South Korea');
+  assert.equal(d.posTs, Date.UTC(2026, 10, 11, 11, 0)); // "11 Nov 2026, 11:00 UTC"
+  assert.equal(d.etaTs, undefined);                      // "Not broadcast: ETA."
+  assert.equal(d.live, true);
+  assert.equal(d.track.length, 6);
+  assert.ok(R.matchPort(d.destText).id === 'yeosu');
+});
+
+test('Wingo 검색: MMSI·IMO·선명으로 일치 선박을 고른다', () => {
+  const r = P.parseWingoSearch(globalThis.FST_DEMO.filter((d) => d.match.includes('seo/search'))[1].data); // 두 번째 항목이 일반 검색(SAMBU)
+  assert.equal(r.ok, true);
+  assert.equal(r.list.length, 3);
+  assert.equal(P.pickWingoMatch(r.list, { mmsi: '441312000', name: 'X' }).name, 'PACIFIC SAMBU');
+  assert.equal(P.pickWingoMatch(r.list, { imo: '9288007', name: 'X' }).mmsi, '440213000');
+  assert.equal(P.pickWingoMatch(r.list, { name: 'pacific sambu' }).imo, '9268306');
+  assert.equal(P.pickWingoMatch(r.list, { name: 'NOPE' }), null);
+});
+
+test('Wingo: 정지 선박(MI LAN)과 보안 확인 화면 처리', () => {
+  const d = P.parseWingo(demo('wingo-marine.com/ship/v-413378950'), NOW_W);
+  assert.equal(d.ok, true);
+  assert.equal(d.sog, 0.6);
+  assert.equal(d.destText, 'PANJIN');
+  assert.equal(d.live, false);                           // "Last seen" = 수신 끊김
+  assert.ok(R.matchPort(d.destText).id === 'panjin');
+  assert.equal(P.parseWingo({ title: 'Just a moment...', text: '', map: null }, NOW).error, 'challenge');
+  assert.equal(P.parseWingo({ title: 'x', text: 'no coords here', map: null }, NOW).error, 'nopos');
+});
 
 test('VesselFinder 상세: 제원·항차 값을 읽고, 1도 단위 좌표는 개략값으로 표시한다', () => {
   const d = P.parseVesselFinder(demo('9288007'), NOW);

@@ -133,7 +133,8 @@
       parts.push((s.ok ? '✅ ' : '⚠️ ') + U.esc(s.label) + ' ' + U.fmtHm(s.at) + (s.ok ? (s.info ? ' · ' + U.esc(s.info) : '') : ' · ' + U.esc(FST.Bridge.errorText(s.error))));
     });
     var html = parts.length ? parts.join('<br>') : '아직 직접 조회한 기록이 없습니다. 갱신을 누르면 소스별 결과가 여기에 남습니다.';
-    if (v.voyage && v.voyage.satNote) html += '<br>ℹ️ VesselFinder 는 위성 위치(' + U.esc(v.voyage.satNote) + ')를 유료로만 제공합니다. 무료 화면의 위치는 연안 수신국 범위 안에서만 최신입니다.';
+    var wOk = v.src && v.src.wingo && v.src.wingo.ok;
+    if (!wOk && v.voyage && v.voyage.satNote) html += '<br>ℹ️ 정밀 좌표는 Wingo 에서 읽습니다. VesselFinder 무료 화면의 위치는 1도 단위 개략값입니다.';
     return msg('trust', '조회 결과', html);
   }
 
