@@ -139,7 +139,12 @@ test('항로: 외해 구간이 육지를 지나지 않는다', () => {
     const i0 = pts.findIndex((q) => q[0] === g0[0] && q[1] === g0[1]);
     const i1 = pts.findIndex((q) => q[0] === g1[0] && q[1] === g1[1]);
     assert.ok(i1 > 0, '도착 진입점이 경로에 있어야 함: ' + pid);
+    // 통항 회랑(간몬해협 등) 경유점은 여유 폭 검사 면제 구간이므로 건너뛴다
+    const corrPts = new Set();
+    (globalThis.FST_SEAGRAPH.corridors || []).forEach((c) => c[3].forEach((q) => corrPts.add(q[0] + ',' + q[1])));
+    const inCorr = (q) => corrPts.has(q[0] + ',' + q[1]);
     for (let i = Math.max(1, i0 + 1); i <= i1; i++) {
+      if (inCorr(pts[i - 1]) || inCorr(pts[i])) continue;
       assert.ok(R.seaClear(pts[i - 1], pts[i], 8), `육지 관통: ${pid} 구간 ${i} ${pts[i - 1]} → ${pts[i]}`);
     }
   }
