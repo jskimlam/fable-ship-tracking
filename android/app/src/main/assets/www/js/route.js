@@ -77,6 +77,18 @@
     return true;
   };
 
+  // 두 점을 이은 직선의 중심선이 육지에 닿는지 (여유 폭 없이, 약 1해리 간격 표본)
+  // 실측점끼리 이을 때 쓴다: 실측은 실제로 배가 있던 자리라 해안에 붙어 있어도 정상이다
+  R.lineHitsLand = function (a, b) {
+    ensure();
+    var n = Math.max(2, Math.ceil(U.distNm(a, b)));
+    for (var i = 1; i < n; i++) {                       // 양 끝(실측점 자체)은 검사하지 않는다
+      var t = i / n;
+      if (R.isLand(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)) return true;
+    }
+    return false;
+  };
+
   // 임의의 점에서 직선으로 갈 수 있는 그래프 노드 목록 → [[노드번호, 거리], ...]
   function linksFrom(p) {
     var out = [];

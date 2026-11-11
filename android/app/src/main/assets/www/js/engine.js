@@ -142,6 +142,24 @@
     });
   };
 
+  // 항적에서 마지막 '정지 구간'을 찾아 근처 항만을 출항지로 추정한다.
+  // 조건: 0.5해리 안에 2점 이상 모여 있고, 지금은 그곳에서 3해리 넘게 떠났고, 15해리 안에 등록 항만이 있을 것
+  function trackOrigin(track, here, sog) {
+    if (!track || track.length < 3 || sog == null || sog < 3) return null; // 지금 움직이고 있을 때만 의미가 있다
+    for (var i = track.length - 2; i >= 0; i--) {                          // 끝(현재)에서 거꾸로 훑는다
+      if (U.distNm(track[i], track[i + 1]) > 0.5) continue;                // 정지 구간이 아님
+      var c = track[i];
+      if (U.distNm(c, here) < 3) continue;                                 // 아직 그 자리 근처: 출항 전·직후
+      var port = R.nearPort(c, 15);
+      if (!port) return null;                                              // 바다 위 대기(투묘)였음 → 기항 아님
+      var along = 0;                                                       // 정지 지점 → 현재까지 항적 길이
+      for (var k = i + 1; k < track.length; k++) along += U.distNm(track[k - 1], track[k]);
+      along += U.distNm(track[track.length - 1], here);
+      return { portId: port.id, lat: c[0], lon: c[1], alongNm: along };
+    }
+    return null;
+  }
+
   // Wingo 에서 읽은 값을 선박에 반영: 정밀 좌표·항적은 실측으로 기록
   function applyWingo(v, d) {
     ['imo', 'mmsi', 'callsign', 'type'].forEach(function (k) { if (d[k]) v[k] = d[k]; });
@@ -151,21 +169,36 @@
     if (d.name && !v.name.replace(/^(IMO|MMSI) \d+$/, '')) v.name = d.name.toUpperCase(); // 번호로만 등록했던 배는 선명을 채운다
     else if (d.name && /^(IMO|MMSI) \d+$/.test(v.name)) v.name = d.name.toUpperCase();
     var posTs = d.posTs || Date.now();
-    // 24시간 항적: 마지막 수신 시각에서 거슬러 올라가며 대략의 시각을 붙여 실측으로 넣는다 (지나온 길 표시용)
-    if (d.track && d.track.length > 1 && d.sog != null && d.sog > 0.3) {
-      var pts = d.track.filter(function (q, i, arr) {                       // 너무 촘촘한 점은 솎아 낸다
-        return i === 0 || i === arr.length - 1 || U.distNm(arr[i - 1], q) > 0.8;
+    var here = [d.lat, d.lon];
+    // 현재 실측을 먼저 기록 (수신 시각이 확실한 값)
+    S.addFix(v, { t: posTs, lat: d.lat, lon: d.lon, sog: d.sog, cog: d.cog != null ? d.cog : d.heading, src: 'wingo' });
+    // 24시간 항적: 각 점의 시각은 페이지에 없으므로 현재 속력으로 거슬러 계산한 근사값 (지나온 길 표시용)
+    var raw = (d.track || []).filter(function (q) { return U.distNm(q, here) > 0.05; }); // 현재 위치와 같은 점 제외
+    if (raw.length) {
+      var pts = raw.filter(function (q, i, arr) {                           // 너무 촘촘한 점은 솎아 낸다 (정박 중 흔들림 등)
+        return i === 0 || U.distNm(arr[i - 1], q) > 0.3;
       }).slice(-40);
-      var total = U.pathNm(pts);
-      var hours = Math.min(24, total / Math.max(d.sog, 1));                 // 전체 구간을 현재 속력으로 간 것으로 근사
-      var acc = 0;
-      for (var i = 0; i < pts.length; i++) {
-        if (i > 0) acc += U.distNm(pts[i - 1], pts[i]);
-        var t = posTs - (total > 0 ? (total - acc) / total : 0) * hours * 36e5;
-        S.addFix(v, { t: Math.round(t), lat: pts[i][0], lon: pts[i][1], sog: i === pts.length - 1 ? d.sog : null, cog: null, src: 'wingo', timeAssumed: i < pts.length - 1 });
+      var spd = Math.max(d.sog || 0, 6);                                   // 정지 중이면 6노트로 가정해 시각을 벌린다
+      var back = 0;                                                         // 현재 위치에서 거꾸로 따라간 거리
+      var prev = here;
+      for (var i = pts.length - 1; i >= 0; i--) {
+        back += U.distNm(prev, pts[i]);
+        prev = pts[i];
+        var t = Math.round(posTs - Math.min(24 * 36e5, back / spd * 36e5) - (pts.length - i)); // 같은 시각이 겹치지 않게 1ms씩 차이
+        S.addFix(v, { t: t, lat: pts[i][0], lon: pts[i][1], sog: null, cog: null, src: 'wingo', timeAssumed: true });
       }
     }
-    S.addFix(v, { t: posTs, lat: d.lat, lon: d.lon, sog: d.sog, cog: d.cog != null ? d.cog : d.heading, src: 'wingo' });
+    // 항적 안에 '멈춰 있던 구간'이 항만 근처에 있으면 그곳을 실제 출항지로 본다
+    // (VesselFinder 의 직전 항만 기록은 기항을 놓쳐 며칠 전 항만으로 남아 있는 경우가 있다)
+    var to = trackOrigin(d.track || [], here, d.sog);
+    v.voyage = v.voyage || {};
+    if (to) {
+      to.dest = d.destText || d.destCode || '';                             // 어느 항차에 대한 추정인지 표시
+      to.depTs = to.alongNm != null ? Math.round(posTs - to.alongNm / Math.max(d.sog || 0, 6) * 36e5) : null;
+      v.voyage.trackOrigin = to;
+    } else if (v.voyage.trackOrigin && v.voyage.trackOrigin.dest !== (d.destText || d.destCode || '')) {
+      v.voyage.trackOrigin = null;                                          // 목적지가 바뀌었으면 이전 추정은 버린다
+    }
     v.voyage = v.voyage || {};
     var dest = d.destText || d.destCode;
     if (dest) v.voyage.destText = dest;                                      // Wingo 목적지가 가장 최신
@@ -203,10 +236,6 @@
     } else if (d.lat != null && d.posTs) {             // 정밀 좌표가 나온 경우에만 실측으로 기록
       S.addFix(v, { t: d.posTs, lat: d.lat, lon: d.lon, sog: d.sog, cog: d.cog, src: 'vf' });
     }
-    if (!v.originPortId && d.lastPortText) {           // 출항지가 비어 있으면 직전 항만으로 채움
-      var op = R.matchPort(d.lastPortText);
-      if (op) v.originPortId = op.id;
-    }
   }
 
   // 손으로 위치 입력 (대리점 통보, Wingo 화면을 보고 옮겨 적는 경우)
@@ -224,10 +253,26 @@
   E.destPort = function (v) {
     return (v.destPortId && R.portById(v.destPortId)) || R.matchPort(v.voyage && v.voyage.destText) || null;
   };
-  // 출항 항만
-  E.originPort = function (v) {
-    return (v.originPortId && R.portById(v.originPortId)) || R.matchPort(v.voyage && v.voyage.lastPortText) || null;
+  // 출항 항만과 그 근거. 우선순위: 사용자가 고른 값 > Wingo 항적의 정지 지점 > VesselFinder 직전 항만
+  // → {port, kind:'user'|'track'|'vf', ts, tsEst, text}
+  E.originInfo = function (v) {
+    var vo = v.voyage || {};
+    var vfPort = R.matchPort(vo.lastPortText);
+    if (v.originPortId && v.originUser) {
+      var up = R.portById(v.originPortId);
+      if (up) return { port: up, kind: 'user', ts: vfPort && vfPort.id === up.id ? vo.atdTs : null, tsEst: false, text: up.ko };
+    }
+    var to = vo.trackOrigin;
+    if (to && R.portById(to.portId)) {
+      var tp = R.portById(to.portId);
+      return { port: tp, kind: 'track', ts: to.depTs || null, tsEst: true, text: tp.ko };
+    }
+    if (vfPort || vo.lastPortText) {
+      return { port: vfPort, kind: 'vf', ts: vo.atdTs || null, tsEst: false, text: (vfPort && vfPort.ko) || vo.lastPortText };
+    }
+    return null;
   };
+  E.originPort = function (v) { var o = E.originInfo(v); return o ? o.port : null; };
 
   // 소스 id → 화면 표시 이름
   E.srcName = function (src) {
@@ -257,10 +302,22 @@
     vw.fix = fix;
     vw.coarse = (!fix && v.voyage && v.voyage.coarse) ? v.voyage.coarse : null; // 실측이 없을 때만 개략 위치 사용
     vw.dest = E.destPort(v);
-    vw.origin = E.originPort(v);
+    var oi = E.originInfo(v);
+    vw.originInfo = oi;
+    vw.origin = oi ? oi.port : null;
     vw.destText = (vw.dest && vw.dest.ko) || (v.voyage && v.voyage.destText) || '';
-    vw.originText = (vw.origin && vw.origin.ko) || (v.voyage && v.voyage.lastPortText) || '';
-    if (vw.origin && vw.dest && vw.origin.id === vw.dest.id && v.voyage && v.voyage.lastPortText) vw.originText = v.voyage.lastPortText; // 같은 항만권 안 이동이면 원문 표기(정박지 등)를 그대로 보여 준다
+    vw.originText = oi ? oi.text : '';
+    vw.originTs = oi ? oi.ts : null;                    // 출항 시각 (tsEst 면 항적으로 계산한 대략값)
+    vw.originTsEst = oi ? oi.tsEst : false;
+    vw.originDoubt = false;
+    // VesselFinder 직전 항만이 목적지와 같은데 배가 그곳에서 멀리 있으면, 기항을 놓친 오래된 기록일 가능성이 크다
+    if (oi && oi.kind === 'vf' && vw.origin && vw.dest && vw.origin.id === vw.dest.id && fix &&
+        U.distNm([fix.lat, fix.lon], [vw.dest.lat, vw.dest.lon]) > 20) {
+      vw.originDoubt = true;
+      vw.origin = null;                                  // 지도에 엉뚱한 추정선을 그리지 않는다
+      vw.originText = '직전 항만 미확인';
+      vw.originTs = null;
+    }
 
     // 속력·침로: 실측에 없으면 VesselFinder 값으로 보충
     vw.sog = fix && fix.sog != null ? fix.sog : (v.voyage && v.voyage.sog != null ? v.voyage.sog : null);
@@ -310,7 +367,8 @@
         for (var i = 1; i < fixes.length; i++) {
           var a = [fixes[i - 1].lat, fixes[i - 1].lon], b = [fixes[i].lat, fixes[i].lon];
           if (U.distNm(a, b) < 0.05) continue;         // 사실상 같은 자리
-          var seg = R.seaClear(a, b, 4) ? [a, b] : R.seaPath(a, b); // 두 실측 사이가 육지를 지나면 우회선으로
+          // 실측점은 실제로 배가 있던 자리라 그대로 잇는다. 기록 공백이 길고(30해리+) 직선이 육지를 관통할 때만 우회선으로 메운다
+          var seg = (U.distNm(a, b) >= 30 && R.lineHitsLand(a, b)) ? R.seaPath(a, b) : [a, b];
           pts = pts.concat(seg.slice(1));
         }
         return pts;

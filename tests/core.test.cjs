@@ -177,7 +177,7 @@ test('항로: 거리 수준이 상식적이다', () => {
 test('항차 계산: 실측과 추정을 구분하고 ETA 우선순위를 지킨다', () => {
   S.load();
   const v = S.newVessel({ name: 'TEST SHIP', imo: '1234567' });
-  v.destPortId = 'yeosu'; v.originPortId = 'anping';
+  v.destPortId = 'yeosu'; v.originPortId = 'anping'; v.originUser = true; // 사용자가 고른 출항지
   v.fixes.push({ t: NOW - 2 * 36e5, lat: 33.0287, lon: 126.6602, sog: 10, cog: 73, src: 'manual' });
   const vw = E.view(v, NOW);
   assert.equal(vw.fresh, 'ok');
@@ -215,6 +215,44 @@ test('브리핑: 질문 의도를 구분해 답한다', () => {
   assert.match(BR.answer('왜 이렇게 느려', vw).text, /노트/);
   assert.match(BR.answer('지금 어디야', vw).text, /°N/);
   assert.match(BR.answer('ㅁㄴㅇㄹ', vw).text, /위치|ETA|속력/);  // 모르는 질문에는 물어볼 수 있는 것을 안내
+});
+
+test('GOLDEN HANA 사례: 항적의 정박 지점으로 출항지를 잡고, 실측점은 우회 없이 잇는다', async () => {
+  const NOW_G = Date.UTC(2026, 10, 11, 11, 43);
+  const wingo = { title: 'GOLDEN HANA — Position, MMSI 441428000 | Wingo Marine', url: 'x',
+    map: JSON.stringify({ kind: 'vessel', position: [33.746395, 131.73123], rotation: 334,
+      track: [[33.27757, 131.65543], [33.27769, 131.65561], [33.27825, 131.65584], [33.2793, 131.65515], [33.2679, 131.68169],
+        [33.26767, 131.68163], [33.43892, 131.83287], [33.55421, 131.84966], [33.7464, 131.73123], [33.7464, 131.73123]] }),
+    text: 'GOLDEN HANA\nIMO 9473664\nMMSI 441428000\nLast seen\n1 h ago\nVoyage\nDestination\nUlsan, South Korea\nAIS: KR USN / WM\nSpeed\n11.1 kn\nCourse\n332°\nHeading\n334°\nPosition\n33.7464° N, 131.7312° E\nLast report\n11 Nov 2026, 10:14 UTC\nNot broadcast: ETA.\nAbout GOLDEN HANA\n' };
+  const saved = globalThis.FST_DEMO;
+  const B = globalThis.FST.Bridge, demoWas = B.demo;
+  globalThis.FST_DEMO = [{ match: 'wingo-marine.com/ship/', data: wingo }];
+  B.demo = true;
+  try {
+    const v = S.newVessel({ name: 'GOLDEN HANA', imo: '9473664' });
+    v.mmsi = '441428000';
+    v.voyage = { lastPortText: 'Ulsan, Korea', atdTs: Date.UTC(2026, 10, 7, 23, 24) }; // VF 의 오래된 직전 항만 기록
+    await E.refreshVessel(v);
+    const vw = E.view(v, NOW_G);
+    assert.equal(vw.origin.id, 'oita');                    // 항적상 정박 지점 = 오이타
+    assert.equal(vw.originInfo.kind, 'track');
+    assert.equal(vw.fix.timeAssumed, undefined);           // 최신 실측은 수신 시각이 확실한 값
+    assert.equal(vw.fix.t, Date.UTC(2026, 10, 11, 10, 14));
+    for (const q of vw.pastTrack) assert.ok(q[0] < 33.76 && q[1] > 131.6, '실측 항적이 엉뚱한 곳으로 튐: ' + q); // 스오나다 노드로 꺾이지 않음
+    assert.ok(U.pathNm(vw.pastEst) < 5);                   // 울산발 274해리 추정선이 사라짐
+    assert.ok(vw.progress > 0.15 && vw.progress < 0.4);
+  } finally { globalThis.FST_DEMO = saved; B.demo = demoWas; }
+});
+
+test('VF 직전 항만이 목적지와 같고 배가 멀리 있으면 출항지를 의심 처리한다', () => {
+  const v = S.newVessel({ name: 'ROUND TRIP' });
+  v.destPortId = 'ulsan';
+  v.voyage = { lastPortText: 'Ulsan, Korea', atdTs: NOW - 3 * 864e5 };
+  v.fixes.push({ t: NOW - 36e5, lat: 34.5, lon: 128.5, sog: 11, cog: 60, src: 'manual' });
+  const vw = E.view(v, NOW);
+  assert.equal(vw.originDoubt, true);
+  assert.equal(vw.origin, null);
+  assert.equal(vw.pastEst.length, 0);
 });
 
 test('시각 유틸: 한국 시간 변환', () => {

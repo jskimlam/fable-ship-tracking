@@ -147,7 +147,7 @@
     // 출항지·목적지 이름표
     if (vw.origin && !(vw.dest && vw.dest.id === vw.origin.id)) { // 출항지와 목적지가 같은 항만이면 이름표는 하나만
       L.marker([vw.origin.lat, vw.origin.lon], { icon: icon('<div class="mk-port">' + U.esc(vw.origin.ko) +
-        (vw.v.voyage && vw.v.voyage.atdTs ? '<small>' + U.fmtKst(vw.v.voyage.atdTs) + ' 출항</small>' : '<small>출항지</small>') + '</div>'), interactive: false }).addTo(layer);
+        (vw.originTs ? '<small>' + (vw.originTsEst ? '약 ' : '') + U.fmtKst(vw.originTs) + ' 출항</small>' : '<small>출항지</small>') + '</div>'), interactive: false }).addTo(layer);
       bounds.push([vw.origin.lat, vw.origin.lon]);
     }
     if (vw.dest) {

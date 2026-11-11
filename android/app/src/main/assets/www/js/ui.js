@@ -96,7 +96,7 @@
   function renderVoy(vw) {
     if (!vw || (!vw.originText && !vw.destText)) { $('voy').innerHTML = ''; return; }
     var pct = Math.round((vw.progress || 0) * 100);
-    var atd = vw.v.voyage && vw.v.voyage.atdTs ? U.fmtKst(vw.v.voyage.atdTs) + ' 출항' : '출항지';
+    var atd = vw.originTs ? (vw.originTsEst ? '약 ' : '') + U.fmtKst(vw.originTs) + ' 출항' + (vw.originTsEst ? '(항적 추정)' : '') : '출항지';
     $('voy').innerHTML =
       '<div class="voy-ends"><div><small>' + U.esc(atd) + '</small><b>' + U.esc(vw.originText || '미확인') + '</b></div>' +
       '<div><small>' + (vw.eta ? U.esc(vw.eta.label) + ' ' + U.fmtKst(vw.eta.ts) : '목적지') + '</small><b>' + U.esc(vw.destText || '미확인') + '</b></div></div>' +
@@ -294,7 +294,7 @@
       '<div class="row"><label>화물</label><div class="cargo-pick" id="cargoPick">' + CARGOS.map(function (c) { return '<button type="button" class="' + (v.cargo === c ? 'on' : '') + '">' + c + '</button>'; }).join('') +
       '<input id="cargoFree" type="text" placeholder="기타" value="' + U.esc(CARGOS.indexOf(v.cargo) < 0 ? v.cargo : '') + '" style="max-width:110px" /></div></div>' +
       '<div class="row"><label>레이캔</label><input id="lcStart" type="date" value="' + U.esc(v.laycanStart) + '" /><input id="lcEnd" type="date" value="' + U.esc(v.laycanEnd) + '" /></div>' +
-      '<div class="row"><label>출항지</label><select id="selOrigin">' + portOptions(v.originPortId, '자동 (직전 항만: ' + ((v.voyage && v.voyage.lastPortText) || '미확인') + ')') + '</select></div>' +
+      '<div class="row"><label>출항지</label><select id="selOrigin">' + portOptions(v.originUser ? v.originPortId : '', '자동 (' + (vw.originText || '미확인') + ({ track: ', 항적 기준', vf: ', VesselFinder 기록' }[vw.originInfo && vw.originInfo.kind] || '') + ')') + '</select></div>' +
       '<div class="row"><label>목적지</label><select id="selDest">' + portOptions(v.destPortId, '자동 (AIS 목적지: ' + ((v.voyage && v.voyage.destText) || '미확인') + ')') + '</select></div>' +
       '<h4>위치 직접 입력</h4>' +
       '<p class="hint">대리점 통보나 Wingo 화면의 좌표를 옮겨 적으면 실측으로 기록됩니다. 예: 33.0287 / 126.6602</p>' +
@@ -356,6 +356,7 @@
       v.cargo = picked ? picked.textContent : $('cargoFree').value.trim().toUpperCase().slice(0, 12);
       v.laycanStart = $('lcStart').value; v.laycanEnd = $('lcEnd').value;
       v.originPortId = $('selOrigin').value; v.destPortId = $('selDest').value;
+      v.originUser = !!v.originPortId;                 // 직접 고른 출항지만 고정값으로 취급
       E.clearCache(); S.save();
       $('dlgInfo').close();
       renderAll({ fit: true });

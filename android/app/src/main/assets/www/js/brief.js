@@ -13,6 +13,7 @@
   var FST = root.FST = root.FST || {};
   var U = FST.Util, E = FST.Engine;
   var BR = FST.Brief = {};
+  function R2(txt) { var p = FST.Route.matchPort(txt); return p ? p.id : ''; } // 항만 문구 → 항만 id
 
   // 좌표가 속한 해역 이름 (개략 구분)
   BR.seaArea = function (lat, lon) {
@@ -79,7 +80,10 @@
   function partVoyage(vw) {
     var v = vw.v, vo = v.voyage || {};
     if (!vw.destText) return msg('voy', '항차', tag('none') + ' 목적지가 확인되지 않았습니다. 선박 정보에서 목적 항만을 지정하면 항로와 ETA 를 계산합니다.');
-    var html = (vw.originText ? bold(vw.originText) + (vo.atdTs ? ' (' + U.fmtKst(vo.atdTs) + ' 출항)' : '') + ' → ' : '') + bold(vw.destText) + '.';
+    var oi = vw.originInfo;
+    var html = (vw.originText ? bold(vw.originText) + (vw.originTs ? ' (' + (vw.originTsEst ? '약 ' : '') + U.fmtKst(vw.originTs) + ' 출항)' : '') + ' → ' : '') + bold(vw.destText) + '.';
+    if (oi && oi.kind === 'track') html += ' ' + tag('real') + ' 출항지는 Wingo 항적에서 정박해 있던 자리로 판단했습니다' + (vo.lastPortText && R2(vo.lastPortText) !== oi.port.id ? ' (VesselFinder 직전 항만 기록 “' + U.esc(vo.lastPortText) + '”은 이 기항을 놓친 이전 기록).' : '.');
+    if (vw.originDoubt) html += ' ⚠️ VesselFinder 직전 항만 기록(' + U.esc(vo.lastPortText) + ')이 목적지와 같아 오래된 기록으로 보고 출항지를 비워 뒀습니다. 선박 정보에서 직접 고를 수 있습니다.';
     if (vw.remainNm != null) {
       html += ' 남은 항정 약 ' + bold(U.num(vw.remainNm, 0) + '해리') + (vw.progress != null ? ' (진행 ' + Math.round(vw.progress * 100) + '%)' : '') + '.';
     }

@@ -79,6 +79,8 @@
     Object.keys(d).forEach(function (k) { if (state.settings[k] == null) state.settings[k] = d[k]; });
     state.vessels.forEach(function (v) {               // 누락 필드 보충
       v.fixes = v.fixes || []; v.src = v.src || {}; v.voyage = v.voyage || {}; v.pilotRows = v.pilotRows || [];
+      // 이전 버전은 VesselFinder 직전 항만을 출항지로 '고정'해 버렸다. 사용자가 고른 값이 아니면 비워서 자동 판단에 맡긴다
+      if (v.originPortId && !v.originUser) v.originPortId = '';
     });
     if (!state.selectedId && state.vessels[0]) state.selectedId = state.vessels[0].id;
     return state;
