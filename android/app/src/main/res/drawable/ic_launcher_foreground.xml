@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 아이콘 전경: 위에서 본 탱커 선체와 항적 고리 (108dp 캔버스, 가운데 66dp 가 안전 영역) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- 바깥 고리 -->
+    <path android:pathData="M54,54m-27,0a27,27 0,1 1,54 0a27,27 0,1 1,-54 0"
+        android:strokeColor="#3335D0FF" android:strokeWidth="2" android:fillColor="#00000000" />
+    <!-- 예정 항로 점선 느낌의 호 -->
+    <path android:pathData="M54,27a27,27 0,0 1,27 27"
+        android:strokeColor="#FFC24D" android:strokeWidth="3" android:strokeLineCap="round" android:fillColor="#00000000" />
+    <!-- 선체 -->
+    <path android:pathData="M54,33c7,7 10,13 10,20v16c0,3 -2,6 -5,6h-10c-3,0 -5,-3 -5,-6V53c0,-7 3,-13 10,-20z"
+        android:fillColor="#35D0FF" />
+    <!-- 선교 -->
+    <path android:pathData="M49,64h10v7h-10z" android:fillColor="#06101C" />
+    <!-- 갑판 중심선 -->
+    <path android:pathData="M54,43v17" android:strokeColor="#06101C" android:strokeWidth="2.4" android:strokeLineCap="round" />
+</vector>

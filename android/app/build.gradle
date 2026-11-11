@@ -1,0 +1,45 @@
+// 앱 모듈 빌드 설정 (외부 라이브러리 의존성 없음: 안드로이드 기본 WebView 만 사용)
+plugins {
+    id 'com.android.application'
+}
+
+// CI 에서 -PverCode=숫자 로 넘기면 그 값을 버전 코드로 쓴다 (새 APK 가 기존 설치본을 덮어쓸 수 있게 매번 증가)
+def verCode = (project.findProperty('verCode') ?: '1') as Integer
+
+android {
+    namespace 'com.jskimlam.fableshiptracking'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.jskimlam.fableshiptracking'
+        minSdk 26                       // 안드로이드 8.0 이상
+        targetSdk 34
+        versionCode verCode
+        versionName "1.0.${verCode}"
+    }
+
+    // 개인 설치(사이드로드)용 서명. 저장소에 공개된 키이므로 스토어 배포용으로 쓰지 말 것.
+    signingConfigs {
+        sideload {
+            storeFile file('../keystore/fable-sideload.jks')
+            storePassword 'fablesideload'
+            keyAlias 'fable'
+            keyPassword 'fablesideload'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false         // 코드 축소 없음 (앱 로직은 대부분 assets 의 JS)
+            signingConfig signingConfigs.sideload
+        }
+        debug {
+            signingConfig signingConfigs.sideload
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

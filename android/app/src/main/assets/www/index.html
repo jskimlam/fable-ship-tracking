@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 화면 폭에 맞추고, 노치·접힘 영역(safe-area)까지 그리도록 설정 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#06101c" />
+  <title>FABLE SHIP TRACKING</title>
+  <!-- 지도 라이브러리 Leaflet 은 앱 안에 내장 (CDN·API 키 없음) -->
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+<div id="app" data-tab="map">
+
+  <!-- ===== 상단 바 ===== -->
+  <header class="top">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 22 12v12l-6 6-6-6V12z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M16 9v14M12 15h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <div class="brand-txt"><b>FABLE</b> SHIP TRACKING<small id="modeNote"></small></div>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost" id="btnRefreshAll" title="전체 선박 갱신"><span class="ico spin-target">⟳</span><span class="lbl">전체 갱신</span></button>
+      <button class="btn ghost" id="btnAdd" title="선박 추가"><span class="ico">＋</span><span class="lbl">선박</span></button>
+      <button class="btn ghost" id="btnSettings" title="설정"><span class="ico">⚙</span></button>
+    </div>
+  </header>
+
+  <!-- ===== 선대 띠 (넓은 화면: 가로 띠 / 좁은 화면: '선대' 탭의 세로 목록) ===== -->
+  <nav class="fleet" id="fleet" aria-label="추적 선박"></nav>
+
+  <!-- ===== 본문: 지도 + 브리핑 ===== -->
+  <main class="stage">
+    <section class="pane map-pane">
+      <div id="map"></div>
+      <div class="map-tools">
+        <button class="chipbtn" id="btnStyle">위성</button>
+        <button class="chipbtn" id="btnReplay">▶ 항적 재생</button>
+        <button class="chipbtn" id="btnFit">⤢ 전체 항로</button>
+      </div>
+      <div class="legend" id="legend">
+        <span><i class="lg lg-track"></i>실측 항적</span>
+        <span><i class="lg lg-est"></i>추정 구간</span>
+        <span><i class="lg lg-future"></i>예정 항로</span>
+      </div>
+      <div class="voy" id="voy"></div>
+    </section>
+
+    <section class="pane brief-pane">
+      <div class="ship-head" id="shipHead"></div>
+      <div class="kpis" id="kpis"></div>
+      <div class="chat" id="chat" aria-live="polite"></div>
+      <div class="chips" id="chips"></div>
+      <form class="ask" id="askForm" autocomplete="off">
+        <input id="askInput" type="text" placeholder="예: 언제 도착해? / 왜 느려?" enterkeyhint="send" />
+        <button class="btn solid" type="submit">묻기</button>
+      </form>
+    </section>
+  </main>
+
+  <!-- ===== 하단 탭 (좁은 화면·커버 화면 전용) ===== -->
+  <nav class="tabs" aria-label="화면 전환">
+    <button data-tab="map"><span>🗺</span>지도</button>
+    <button data-tab="brief"><span>💬</span>브리핑</button>
+    <button data-tab="fleet"><span>🚢</span>선대</button>
+  </nav>
+
+  <!-- ===== 알림 띠 ===== -->
+  <div class="toast" id="toast" role="status"></div>
+</div>
+
+<!-- ===== 대화상자: 선박 추가 ===== -->
+<dialog id="dlgAdd" class="dlg">
+  <form method="dialog" class="dlg-box">
+    <h2>선박 추가</h2>
+    <p class="hint">선박명 또는 IMO 번호(7자리)를 넣으면 VesselFinder 검색 화면을 직접 조회해 후보를 보여 줍니다.</p>
+    <div class="row">
+      <input id="addQuery" type="text" placeholder="예: SUNRISE SAMBU 또는 9288007" />
+      <button class="btn solid" id="addSearch" type="button">찾기</button>
+    </div>
+    <div class="result-list" id="addResults"></div>
+    <div class="dlg-foot">
+      <button class="btn ghost" id="addNameOnly" type="button">이름만으로 추가</button>
+      <button class="btn ghost" value="close">닫기</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===== 대화상자: 선박 정보·편집 ===== -->
+<dialog id="dlgInfo" class="dlg">
+  <form method="dialog" class="dlg-box" id="infoBox"></form>
+</dialog>
+
+<!-- ===== 대화상자: 설정 ===== -->
+<dialog id="dlgSettings" class="dlg">
+  <form method="dialog" class="dlg-box" id="settingsBox"></form>
+</dialog>
+
+<!-- 스크립트는 의존 순서대로 올린다 -->
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="js/util.js"></script>
+<script src="js/data/ports.js"></script>
+<script src="js/data/land.js"></script>
+<script src="js/data/seagraph.js"></script>
+<script src="js/data/demo.js"></script>
+<script src="js/route.js"></script>
+<script src="js/parsers.js"></script>
+<script src="js/bridge.js"></script>
+<script src="js/store.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/brief.js"></script>
+<script src="js/mapview.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

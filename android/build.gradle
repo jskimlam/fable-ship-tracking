@@ -1,0 +1,4 @@
+// 최상위 빌드 설정: 안드로이드 앱 플러그인 버전만 선언
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

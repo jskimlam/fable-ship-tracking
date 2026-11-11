@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 제목 표시줄 없는 어두운 테마. 상태 표시줄·내비게이션 바도 앱 바탕색으로 맞춘다. -->
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg_navy</item>
+        <item name="android:statusBarColor">@color/bg_navy</item>
+        <item name="android:navigationBarColor">@color/bg_navy</item>
+        <item name="android:colorAccent">@color/accent_cyan</item>
+    </style>
+</resources>

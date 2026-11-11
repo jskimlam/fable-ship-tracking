@@ -1,0 +1,48 @@
+# main 브랜치에 올라올 때마다: 회귀 테스트 → APK 빌드 → 릴리스에 APK 첨부
+# 받는 곳: https://github.com/jskimlam/fable-ship-tracking/releases/latest
+name: build-apk
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write          # 릴리스 생성에 필요
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 회귀 테스트 (해석 규칙·항로·항차 계산)
+        run: node --test tests/core.test.cjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: APK 빌드
+        run: gradle -p android assembleRelease -PverCode=${{ github.run_number }} --no-daemon
+
+      - name: 파일명 정리
+        run: cp android/app/build/outputs/apk/release/app-release.apk fable-ship-tracking.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fable-ship-tracking-apk
+          path: fable-ship-tracking.apk
+
+      - name: 릴리스 등록
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v1.0.${{ github.run_number }}" fable-ship-tracking.apk \
+            --title "페이블 쉽트래킹 v1.0.${{ github.run_number }}" \
+            --notes "커밋 ${{ github.sha }} 에서 자동 빌드한 APK 입니다. 기존 설치본 위에 그대로 덮어 설치됩니다."
