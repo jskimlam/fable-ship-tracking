@@ -21,6 +21,9 @@
   var anim = null;                                     // 진행 중인 애니메이션 핸들
   var lastPos = {};                                    // 선박 id → 직전에 그린 위치 (갱신 시 이동 애니메이션 출발점)
   var styleNow = 'sat';
+  var lastBounds = [];                                 // 마지막으로 그린 항차 전체 범위 (전체 항로 보기용)
+  var pending = null;                                  // 지도가 숨어 있어 미뤄 둔 카메라 이동 {vw, mode, from}
+  var camSeq = 0;                                      // 카메라 동작 번호 (새 동작이 시작되면 이전 콜백은 무시)
 
   // 위에서 내려다본 탱커 모양 (위쪽이 선수)
   M.shipSvg = function (color) {
@@ -55,7 +58,76 @@
   M.style = function () { return styleNow; };
 
   // 화면 크기가 바뀌었을 때 (폴드 접기·펴기, 탭 전환)
-  M.resize = function () { if (map) map.invalidateSize(); };
+  // 화면 크기가 바뀌거나 숨어 있던 지도가 다시 보일 때: 크기 재계산 후 미뤄 둔 카메라 이동 실행
+  M.resize = function () {
+    if (!map) return;
+    map.invalidateSize(false);
+    if (pending && visible()) { var pd = pending; pending = null; camera(pd.vw, pd.mode, pd.from); }
+  };
+
+  /* ---------- 카메라 (지도 이동·확대) ---------- */
+
+  // 지도가 실제로 화면에 보이는 크기인지 (숨은 탭에서는 0 이 된다)
+  function visible() {
+    var el = map && map.getContainer();
+    return !!el && el.offsetWidth > 60 && el.offsetHeight > 60;
+  }
+
+  // 지도 위에 겹친 버튼·진행 띠를 피하는 여백 (화면 크기에 비례, 진행 띠는 실제 높이)
+  function pads() {
+    var w = map.getContainer().offsetWidth, h = map.getContainer().offsetHeight;
+    var strip = root.document && root.document.getElementById('voy');
+    var sh = strip && strip.offsetHeight ? strip.offsetHeight + 20 : 30;
+    var side = Math.round(Math.min(70, w * 0.1));
+    var top = Math.round(Math.min(110, h * 0.14));
+    var bottom = Math.round(Math.min(sh, h * 0.45));
+    return { tl: [side, top], br: [side, bottom] };
+  }
+
+  // 여백을 고려해 '보이는 영역의 가운데'에 target 이 오도록 이동
+  function centerOn(target, z, p) {
+    var pt = map.project(target, z).add([(p.br[0] - p.tl[0]) / 2, (p.br[1] - p.tl[1]) / 2]);
+    map.flyTo(map.unproject(pt, z), z, { duration: 0.8 });
+  }
+
+  // 지도 이동이 끝나면 한 번만 fn 실행 (moveend 가 안 오는 경우를 대비해 시간 제한)
+  function whenSettled(seq, fn) {
+    var done = false;
+    function go() { if (done || seq !== camSeq) return; done = true; fn(); }
+    map.once('moveend', go);
+    root.setTimeout(go, 1400);
+  }
+
+  // mode: 'route' 전체 항로 / 'ship' 배 중심 / 'follow' 이전 위치→새 위치 이동을 보여 준 뒤 배 중심
+  function camera(vw, mode, from) {
+    var seq = ++camSeq;
+    if (!visible()) {                                   // 숨어 있으면 지금 움직이지 않고 미뤄 둔다 (크기 0 지도에서 계산하면 좌표가 깨진다)
+      pending = { vw: vw, mode: mode, from: from };
+      return;
+    }
+    pending = null;
+    map.invalidateSize(false);
+    var p = pads();
+    if (mode === 'route' || !vw.cur) {
+      if (lastBounds.length) map.flyToBounds(L.latLngBounds(lastBounds), { paddingTopLeft: p.tl, paddingBottomRight: p.br, maxZoom: 9, duration: 0.9 });
+      return;
+    }
+    var target = [vw.cur.lat, vw.cur.lon];
+    var z = Math.min(10, Math.max(Math.round(map.getZoom()), 8));   // 배 주변이 보이는 확대 수준 (8~10, 사용자가 더 확대해 둔 상태는 존중)
+    if (mode === 'follow' && from) {
+      stopAnim();
+      moveShip(from, U.bearing(from, target));
+      map.flyToBounds(L.latLngBounds([from, target]), { paddingTopLeft: p.tl, paddingBottomRight: p.br, maxZoom: z, duration: 0.7 });
+      whenSettled(seq, function () {
+        animateAlong([from, target], 1600, function () {
+          moveShip(target, vw.heading);
+          if (seq === camSeq) centerOn(target, z, p);
+        });
+      });
+      return;
+    }
+    centerOn(target, z, p);
+  }
 
   function icon(html, size, anchor) {
     return L.divIcon({ className: '', html: html, iconSize: size || [0, 0], iconAnchor: anchor || [0, 0] });
@@ -103,7 +175,7 @@
     anim = root.requestAnimationFrame(frame);
   }
 
-  // 항차 상태 그리기. opts.fit=true 면 전체 항로가 보이게 맞춘다. others = 다른 선박들의 view.
+  // 항차 상태 그리기. opts: fit(전체 항로) / follow(갱신 후 이동→배 중심) / center(배 중심). others = 다른 선박들의 view.
   M.draw = function (vw, opts, others, onPick) {
     if (!map) return;
     opts = opts || {};
@@ -169,24 +241,22 @@
       bounds.push([vw.coarse.lat + 1, vw.coarse.lon + 1], [vw.coarse.lat - 1, vw.coarse.lon - 1]);
     }
 
-    // 선박 표식 + 이동 애니메이션
+    // 선박 표식 (이동 애니메이션은 카메라와 함께 camera() 가 처리)
+    var moved = null;
     if (vw.cur) {
       var target = [vw.cur.lat, vw.cur.lon];
       var from = lastPos[vw.v.id];
       placeShip(target, vw.heading, vw);
       bounds.push(target);
-      if (opts.animate && from && U.distNm(from, target) > 0.2 && U.distNm(from, target) < 400) {
-        moveShip(from, U.bearing(from, target));       // 직전 위치에서 새 위치로 미끄러지듯 이동
-        animateAlong([from, target], 1600, function () { moveShip(target, vw.heading); });
-      }
+      if (from && U.distNm(from, target) > 0.2 && U.distNm(from, target) < 400) moved = from;
       lastPos[vw.v.id] = target;
     }
+    lastBounds = bounds;
 
-    if (opts.fit && bounds.length) {
-      map.flyToBounds(L.latLngBounds(bounds), { paddingTopLeft: [70, 110], paddingBottomRight: [90, 215], maxZoom: 9, duration: 0.9 });
-    } else if (opts.center && vw.cur) {
-      map.flyTo([vw.cur.lat, vw.cur.lon], Math.max(map.getZoom(), 8), { duration: 0.8 });
-    }
+    // opts: fit → 전체 항로, follow(구 animate) → 이동 보여 주고 배 중심, center → 배 중심
+    var mode = (opts.follow || opts.animate) ? 'follow' : opts.fit ? 'route' : opts.center ? 'ship' : null;
+    if (mode) camera(vw, mode, mode === 'follow' ? moved : null);
+    else if (pending && pending.vw.v.id === vw.v.id) pending.vw = vw; // 미뤄 둔 이동은 최신 값으로
   };
 
   // 항적 재생: 출항지부터 현재 위치까지 선박을 움직여 보여 준다
@@ -201,7 +271,10 @@
       pts = pts.concat(pts.length ? seg.slice(1) : seg);
     }
     if (pts.length < 2) { if (onEnd) onEnd(false); return; }
-    map.flyToBounds(L.latLngBounds(pts.concat(vw.dest ? [[vw.dest.lat, vw.dest.lon]] : [])), { paddingTopLeft: [70, 110], paddingBottomRight: [90, 215], maxZoom: 9, duration: 0.6 });
+    if (!visible()) { if (onEnd) onEnd(false); return; }
+    ++camSeq; pending = null;
+    var pr = pads();
+    map.flyToBounds(L.latLngBounds(pts.concat(vw.dest ? [[vw.dest.lat, vw.dest.lon]] : [])), { paddingTopLeft: pr.tl, paddingBottomRight: pr.br, maxZoom: 9, duration: 0.6 });
     var trail = L.polyline([pts[0]], { color: '#ffffff', weight: 4, opacity: 0.9, lineCap: 'round', interactive: false }).addTo(layer);
     moveShip(pts[0], U.bearing(pts[0], pts[1]));
     root.setTimeout(function () {
@@ -215,6 +288,6 @@
 
   // 현재 그려진 선박으로 화면 이동
   M.focus = function (vw) {
-    if (map && vw.cur) map.flyTo([vw.cur.lat, vw.cur.lon], 9, { duration: 0.8 });
+    if (map && vw.cur) camera(vw, 'ship', null);
   };
 })(typeof window !== 'undefined' ? window : globalThis);

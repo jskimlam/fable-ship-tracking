@@ -132,7 +132,7 @@
     $('chips').innerHTML = vw ? BR.chips(vw).map(function (c) { return '<button type="button">' + U.esc(c) + '</button>'; }).join('') : '';
   }
 
-  // 전체 다시 그리기. mapOpts: {fit, animate, center}
+  // 전체 다시 그리기. mapOpts: {fit 전체 항로, follow 갱신 후 배 따라가기, center 배 중심}
   function renderAll(mapOpts) {
     var vws = views();
     var sel = S.selected();
@@ -181,7 +181,7 @@
       if (i >= 0) log.splice(i, 1);                    // 진행 표시를 지우고 결과 브리핑으로 바꾼다
       var vw = E.view(v, Date.now());
       pushBriefing(id, BR.briefing(vw));
-      if (S.get().selectedId === id) renderAll({ animate: true, fit: !quiet });
+      if (S.get().selectedId === id) renderAll(quiet ? false : { follow: true }); // 갱신한 배를 따라가 배 중심으로
       else renderAll(false);
       var failed = sum.steps.filter(function (s) { return !s.ok; }).length;
       if (!quiet) toast(failed ? '갱신 완료 · ' + failed + '개 소스는 읽지 못했습니다.' : '갱신 완료');
@@ -205,7 +205,7 @@
       btn.classList.remove('spinning');
       var sel = S.selected();
       if (sel) pushMsg(sel.id, BR.fleetSummary(views()));
-      renderAll({ fit: true });
+      renderAll({ center: true });                    // 전체 갱신 후에는 선택한 배 중심으로
       toast('전체 ' + ids.length + '척 갱신 완료');
     });
   }
@@ -336,7 +336,7 @@
       $('dlgInfo').close();
       pushMsg(v.id, { kind: 'sys', text: '수동 입력 위치를 실측으로 기록했습니다.' });
       pushBriefing(v.id, BR.briefing(E.view(v, Date.now())).slice(0, 3));
-      renderAll({ fit: true, animate: true });
+      renderAll({ follow: true });
       return;
     }
     if (t.id === 'btnOpenWingo') { B.openBrowser(P.wingoShipUrl(v.mmsi), v.name + ' · Wingo Marine'); return; }
