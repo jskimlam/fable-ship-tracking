@@ -59,11 +59,13 @@
     var html = vws.map(function (vw) {
       var v = vw.v;
       var eta = vw.eta ? '<b class="num">' + U.fmtKst(vw.eta.ts) + '</b><span class="num">' + U.remain(vw.eta.ts, vw.now) + '</span>' : '<span>ETA 미확인</span>';
-      return '<button class="fcard' + (v.id === sel ? ' on' : '') + (busy[v.id] ? ' busy' : '') + (vw.laycan && vw.laycan.level === 'late' ? ' late' : '') + '" data-id="' + v.id + '">' +
-        '<div class="nm"><i class="dot ' + vw.fresh + '"></i>' + U.esc(v.name) + (v.cargo ? '<span class="cg">' + U.esc(v.cargo) + '</span>' : '') + '</div>' +
+      // 카드 안에 삭제 버튼을 넣기 위해 카드 자체는 div (버튼 안에 버튼을 둘 수 없음)
+      return '<div class="fcard' + (v.id === sel ? ' on' : '') + (busy[v.id] ? ' busy' : '') + (vw.laycan && vw.laycan.level === 'late' ? ' late' : '') + '" data-id="' + v.id + '" role="button" tabindex="0">' +
+        '<div class="nm"><i class="dot ' + vw.fresh + '"></i><span class="nmtxt">' + U.esc(v.name) + '</span>' + (v.cargo ? '<span class="cg">' + U.esc(v.cargo) + '</span>' : '') +
+        '<button class="fdel" data-del="' + v.id + '" title="' + U.esc(v.name) + ' 추적 종료" aria-label="' + U.esc(v.name) + ' 추적 종료">×</button></div>' +
         '<div class="to">' + U.esc(vw.originText || '출항지 미확인') + ' → ' + U.esc(vw.destText || '목적지 미확인') + '</div>' +
         '<div class="eta">' + eta + '</div>' +
-        '<div class="bar"><i style="width:' + Math.round((vw.progress || 0) * 100) + '%"></i></div></button>';
+        '<div class="bar"><i style="width:' + Math.round((vw.progress || 0) * 100) + '%"></i></div></div>';
     }).join('');
     $('fleet').innerHTML = html || '<div class="hint" style="padding:8px 4px;color:var(--mut)">추적 중인 선박이 없습니다. 상단의 ＋ 로 추가해 주세요.</div>';
   }
@@ -145,6 +147,28 @@
   }
 
   /* ================= 동작 ================= */
+
+  // 선대 카드의 × : 첫 번째 누름은 '삭제?' 확인 표시, 3초 안에 다시 누르면 추적 종료
+  var delTimer = null;
+  function askDelete(btn) {
+    var id = btn.dataset.del;
+    if (btn.dataset.sure !== '1') {
+      [].forEach.call(doc.querySelectorAll('.fdel[data-sure="1"]'), function (b) { b.dataset.sure = ''; b.textContent = '×'; });
+      btn.dataset.sure = '1';
+      btn.textContent = '삭제?';
+      clearTimeout(delTimer);
+      delTimer = setTimeout(function () { btn.dataset.sure = ''; btn.textContent = '×'; }, 3000);
+      return;
+    }
+    clearTimeout(delTimer);
+    var v = S.vessel(id);
+    if (!v) return;
+    S.removeVessel(id);
+    delete chats[id];
+    var next = S.selected();
+    if (next) selectVessel(next.id); else { renderAll(false); renderChat(); }
+    toast(v.name + ' 추적을 종료했습니다.');
+  }
 
   // 선박 선택
   function selectVessel(id) {
@@ -455,10 +479,11 @@
     if (again) return;                                 // 아래 이벤트 연결은 처음 한 번만
 
     $('fleet').addEventListener('click', function (ev) {
+      var del = ev.target.closest('.fdel');
+      if (del) { ev.stopPropagation(); askDelete(del); return; } // × : 한 번 더 눌러야 삭제
       var c = ev.target.closest('.fcard');
       if (!c) return;
       selectVessel(c.dataset.id);
-      if ($('app').dataset.tab === 'fleet') setTab('map'); // 좁은 화면: 선대에서 고르면 지도로
     });
     $('shipHead').addEventListener('click', function (ev) {
       var b = ev.target.closest('button');
