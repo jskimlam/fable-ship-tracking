@@ -126,7 +126,7 @@
         html += '도선예보는 갱신하면 직접 조회합니다.';
       }
     } else {
-      html += bold(port.ko) + ' 항만은 아직 도선예보 직접 조회를 지원하지 않습니다.';
+      html += bold(port.ko) + ' 항만'; // 여수·광양 외에는 도선예보 안내 없이 ETA 기준으로만 표시
     }
     if (port.rule) html += '<br>📌 ' + U.esc(port.rule);
     return msg('port', '접안·항만', html);
