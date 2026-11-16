@@ -16,25 +16,34 @@ const demo = (m) => globalThis.FST_DEMO.find((d) => d.match.includes(m)).data;
 const NOW = Date.UTC(2026, 10, 11, 9, 30);              // 2026-11-11 18:30 KST 로 고정
 const NOW_W = Date.UTC(2026, 10, 11, 11, 14);           // Wingo 캡처 시점 (11:00 UTC 수신 + 14분)
 
-test('Wingo 선박 페이지: 정밀 좌표·항적·수신 시각·목적지를 읽는다', () => {
-  const d = P.parseWingo(demo('wingo-marine.com/ship/v-440213000'), NOW_W);
+test('Wingo 선박 페이지(2026-11-16 개편, 로그인): live 데이터로 정밀 좌표·항적·속력을 읽는다', () => {
+  const NOW_L = Date.UTC(2026, 10, 16, 10, 45);
+  const d = P.parseWingo(demo('wingo-marine.com/ship/v-440213000'), NOW_L);
   assert.equal(d.ok, true);
   assert.equal(d.name, 'SUNRISE SAMBU');
   assert.equal(d.imo, '9288007');
   assert.equal(d.mmsi, '440213000');
-  assert.equal(d.callsign, 'DSNR6');
-  assert.ok(Math.abs(d.lat - 33.2762) < 1e-4 && Math.abs(d.lon - 127.0482) < 1e-4); // 정밀 좌표
-  assert.equal(d.sog, 10.6);
-  assert.equal(d.cog, 32);
-  assert.equal(d.heading, 35);
+  assert.ok(Math.abs(d.lat - 37.948887) < 1e-6 && Math.abs(d.lon - 122.92149) < 1e-6);
+  assert.equal(d.sog, 12);
+  assert.equal(d.cog, 136);
+  assert.equal(d.heading, 136);                          // live.heading 이 null 이면 지도 회전값
+  assert.equal(d.posTs, Date.parse('2026-11-16T10:09:49.019Z'));
+  assert.equal(d.track.length, 20);
+  assert.equal(d.destText, 'Ulsan, South Korea');
   assert.equal(d.draught, 4.8);
-  assert.equal(d.dwt, 3613);
-  assert.equal(d.destText, 'Yeosu, South Korea');
-  assert.equal(d.posTs, Date.UTC(2026, 10, 11, 11, 0)); // "11 Nov 2026, 11:00 UTC"
-  assert.equal(d.etaTs, undefined);                      // "Not broadcast: ETA."
-  assert.equal(d.live, true);
-  assert.equal(d.track.length, 6);
-  assert.ok(R.matchPort(d.destText).id === 'yeosu');
+  assert.equal(d.nearText, '65 km NE of Longyan Pt, China');
+  assert.equal(R.matchPort(d.destText).id, 'ulsan');
+});
+
+test('Wingo 비로그인(위치 가림): login 오류 + 보이는 값(목적지·흘수)은 돌려준다', () => {
+  const d = P.parseWingo(demo('wingo-marine.com/ship/v-999999999'), Date.UTC(2026, 10, 16, 10, 45));
+  assert.equal(d.ok, false);
+  assert.equal(d.error, 'login');
+  assert.equal(d.partial.destText, 'Ulsan, South Korea');
+  assert.equal(d.partial.draught, 4.8);
+  // 속도 제한 응답
+  const rl = P.parseWingo({ title: 'x', text: 'Voyage', map: '{"kind":"vessel","gated":true}', live: { status: 429, body: '' } }, Date.now());
+  assert.equal(rl.error, 'ratelimit');
 });
 
 test('Wingo 검색: MMSI·IMO·선명으로 일치 선박을 고른다', () => {

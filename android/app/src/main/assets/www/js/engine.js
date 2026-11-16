@@ -74,7 +74,11 @@
       return B.scrape({ url: url, script: P.wingoShipScript(), timeoutMs: 25000 }).then(function (res) {
         if (!res.ok) { record('wingo', 'Wingo Marine', { ok: false, error: P.isChallenge(res.title, '') ? 'challenge' : res.error }); return; }
         var d = P.parseWingo(res.data, Date.now());
-        if (!d.ok) { record('wingo', 'Wingo Marine', d); return; }
+        if (!d.ok) {
+          if (d.partial) applyWingoPartial(v, d.partial);  // 위치가 가려져도 목적지·흘수 등 보이는 값은 반영
+          record('wingo', 'Wingo Marine', d);
+          return;
+        }
         applyWingo(v, d);
         record('wingo', 'Wingo Marine', { ok: true, info: (d.live ? '실시간 수신' : '마지막 수신') + (d.posTs ? ' · ' + U.ago(d.posTs, Date.now()) : '') });
       });
@@ -158,6 +162,17 @@
       return { portId: port.id, lat: c[0], lon: c[1], alongNm: along };
     }
     return null;
+  }
+
+  // 위치가 가려진 Wingo 페이지에서도 보이는 값 반영 (목적지·흘수·제원·근처 항만)
+  function applyWingoPartial(v, d) {
+    ['imo', 'mmsi', 'callsign', 'type'].forEach(function (k) { if (d[k] && !v[k]) v[k] = d[k]; });
+    if (d.dwt && !v.dwt) v.dwt = d.dwt;
+    v.voyage = v.voyage || {};
+    var dest = d.destText || d.destCode;
+    if (dest) v.voyage.destText = dest;
+    if (d.draught) v.voyage.draught = d.draught;
+    if (d.nearText) v.voyage.nearText = d.nearText;
   }
 
   // Wingo 에서 읽은 값을 선박에 반영: 정밀 좌표·항적은 실측으로 기록

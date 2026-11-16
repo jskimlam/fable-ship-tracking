@@ -399,6 +399,10 @@
     }).join('') || '<div class="hint">등록된 소스가 없습니다.</div>';
     $('settingsBox').innerHTML =
       '<h2>설정</h2>' +
+      '<h4>Wingo 로그인 (정밀 위치에 필요)</h4>' +
+      '<p class="hint">2026-11-16부터 Wingo 는 정밀 위치를 로그인 회원에게만 보여 줍니다. 무료 계정이면 되고, 이메일로 받은 6자리 코드로 로그인합니다(비밀번호 없음). ' +
+      '한 번 로그인하면 약 30일 유지되며, 갱신할 때 그 로그인으로 조회합니다. 이 앱은 이메일·코드를 읽거나 저장하지 않습니다.</p>' +
+      '<div class="row"><button class="btn solid" type="button" id="wingoLogin">Wingo 로그인 열기</button></div>' +
       '<h4>사용자 지정 소스 (추가 교차 확인)</h4>' +
       '<p class="hint">선박 한 척의 위치가 나오는 페이지 주소를 등록하면, 갱신할 때 그 페이지를 직접 열어 좌표·속력·침로를 읽습니다. ' +
       '주소에서 선박마다 달라지는 부분은 {IMO} {MMSI} {NAME} {CALLSIGN} 으로 바꿔 넣으세요. ' +
@@ -440,6 +444,7 @@
       if (c) B.openBrowser(v ? P.fillTemplate(c.url, v) : c.url.replace(/\{[A-Z]+\}/gi, ''), c.name);
       return;
     }
+    if (t.id === 'wingoLogin') { B.openBrowser(P.WINGO + '/login', 'Wingo Marine 로그인'); return; }
     if (t.id === 'openPortmis') { B.openBrowser('https://new.portmis.go.kr/portmis/websquare/websquare.jsp?w2xPath=/portmis/w2/main/index.xml&page=/portmis/w2/sp/vssl/vsch/UI-PM-SP-104-02.xml&menuId=1319&menuCd=M0182', 'PORT-MIS 선박입출항현황'); return; }
     if (t.id === 'bkExport') { $('bkText').value = S.exportJson(); $('bkText').select(); toast('전체 내용을 복사해 보관하세요.'); return; }
     if (t.id === 'bkImport') {

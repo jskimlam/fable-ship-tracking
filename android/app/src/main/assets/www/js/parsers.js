@@ -106,16 +106,27 @@
   };
 
   // 선박 페이지에서 지도 데이터와 보이는 글자를 읽어 오는 스크립트
+  // 2026-11-16 Wingo 개편: 정밀 위치는 로그인(무료 계정, 이메일 코드) 회원에게만 보인다.
+  //   - 비로그인: vessel-map-data 가 {"gated":true} 이고 좌표·속력·항적이 가려짐 (수신 시각·목적지·흘수는 보임)
+  //   - 로그인  : 페이지가 /api/v1/seo/vessel/{MMSI}/live 를 불러 지도와 좌표를 그린다
+  // 앱은 사용자가 앱 안 브라우저에서 로그인해 둔 세션(쿠키)으로, 페이지와 같은 이 데이터를 함께 읽는다.
   P.wingoShipScript = function () {
     return '(function(){' +
       'if(window.__FST_RUN)return;window.__FST_RUN=1;var t0=Date.now();' +
+      'function done(live){' +
+      ' var m=document.getElementById("vessel-map-data");' +
+      ' window.__FST_OUT=JSON.stringify({title:document.title,url:location.href,map:m?m.textContent:null,live:live,' +
+      '  text:(document.body?document.body.innerText:"").slice(0,12000)});' +
+      '}' +
       '(function tick(){' +
       ' var m=document.getElementById("vessel-map-data");' +
       ' var ch=/just a moment|잠시만|attention required|보안 확인/i.test(document.title);' +
-      ' if(!ch&&(m||Date.now()-t0>9000)){' +
-      '  window.__FST_OUT=JSON.stringify({title:document.title,url:location.href,map:m?m.textContent:null,' +
-      '   text:(document.body?document.body.innerText:"").slice(0,12000)});' +
-      ' }else{setTimeout(tick,300);}' +
+      ' if(ch||(!m&&Date.now()-t0<9000)){setTimeout(tick,300);return;}' +
+      ' var mm=(location.pathname.match(/(\\d{9})\\/?$/)||[])[1];' +                         // 주소 끝의 MMSI
+      ' if(!mm){done(null);return;}' +
+      ' fetch("/api/v1/seo/vessel/"+mm+"/live?lang=en",{credentials:"same-origin"})' +
+      '  .then(function(r){return r.text().then(function(b){done({status:r.status,body:b.slice(0,60000)});});})' +
+      '  .catch(function(e){done({status:0,body:String(e)});});' +
       '})();' +
       '})();';
   };
@@ -175,25 +186,58 @@
     var cut = full.search(/\n\s*About [^\n]+\n|Vessels nearby/);        // 아래쪽 '주변 선박' 목록은 다른 배 정보라 잘라 낸다
     var t = cut > 0 ? full.slice(0, cut) : full;
 
-    // 정밀 좌표: 지도 데이터 우선, 없으면 화면 글자 "33.9038° N, 128.3128° E"
-    if (map && Array.isArray(map.position) && isFinite(map.position[0]) && isFinite(map.position[1])) {
+    // live 데이터 (로그인 세션으로 읽은 것): {lat, lon, sog, cog, heading, positionTs, track, map:{position, track, rotation}}
+    function num(x) { return typeof x === 'number' && isFinite(x); } // isFinite(null) 은 true 라 직접 확인
+    var live = null, liveStatus = dump.live ? dump.live.status : null;
+    if (dump.live && dump.live.status === 200) {
+      try { live = JSON.parse(dump.live.body); } catch (e) { live = null; }
+      if (live && !(num(live.lat) && num(live.lon))) live = null;
+    }
+    var gated = !!(map && map.gated);
+
+    // 정밀 좌표 우선순위: live → 지도 데이터(개편 전 형식) → 화면 글자 "33.9038° N, 128.3128° E"
+    if (live) {
+      out.lat = +live.lat; out.lon = +live.lon;
+      map = live.map || map;
+    } else if (map && Array.isArray(map.position) && isFinite(map.position[0]) && isFinite(map.position[1])) {
       out.lat = +map.position[0]; out.lon = +map.position[1];
-    } else {
+    } else if (!gated) {
       var g = P.parseGeneric(t);
       if (g.ok) { out.lat = g.lat; out.lon = g.lon; }
     }
-    if (out.lat == null) return { ok: false, error: /not found|404/i.test(dump.title || '') ? 'notfound' : 'nopos' };
+    if (out.lat == null) {
+      // 위치가 가려진 경우: 원인을 구분하고, 로그인 없이도 보이는 값(목적지·수신 시각 등)은 함께 돌려준다
+      var err = liveStatus === 429 || /many vessels in a short time|try again later/i.test(t) ? 'ratelimit'
+        : (gated || liveStatus === 401 || liveStatus === 403 || /enter your email|Shown after you enter/i.test(t)) ? 'login'
+        : /not found|404/i.test(dump.title || '') ? 'notfound' : 'nopos';
+      return { ok: false, error: err, partial: wingoText(t, now) };
+    }
 
-    out.heading = map && isFinite(map.rotation) ? +map.rotation : null;
-    out.track = (map && Array.isArray(map.track) ? map.track : []).filter(function (q) {
+    out.heading = live && num(live.heading) ? live.heading : map && num(map.rotation) ? map.rotation : null;
+    var trk = live && Array.isArray(live.track) ? live.track : (map && Array.isArray(map.track) ? map.track : []);
+    out.track = trk.filter(function (q) {
       return Array.isArray(q) && isFinite(q[0]) && isFinite(q[1]) && Math.abs(q[0]) <= 90 && Math.abs(q[1]) <= 180;
     }).map(function (q) { return [+q[0], +q[1]]; });
     out.portNear = map && map.port && map.port.name ? map.port.name : '';
     out.openSea = !!(map && map.openSea);
-
-    var m;
-    m = (dump.title || '').match(/^(.+?)\s+—\s+Position/);                   // 제목 "YC COSMOS — Position, IMO …"
+    var tx = wingoText(t, now);
+    Object.keys(tx).forEach(function (k) { if (out[k] == null) out[k] = tx[k]; });
+    if (live) {                                                              // live 값이 화면 글자보다 정확
+      if (num(live.sog)) out.sog = live.sog;
+      if (num(live.cog)) out.cog = live.cog;
+      var lt = live.positionTs ? Date.parse(live.positionTs) : NaN;
+      if (isFinite(lt)) out.posTs = Math.min(lt, now);
+    }
+    var m = (dump.title || '').match(/^(.+?)\s+—\s+(?:Position|IMO|MMSI)/);   // 제목 "YC COSMOS — IMO 9409364, …" (개편 전 "— Position")
     out.name = m ? m[1].trim() : '';
+    out.ok = true;
+    return out;
+  };
+
+  // 선박 페이지 글자에서 읽는 값 (로그인 없이도 보이는 것 포함)
+  function wingoText(t, now) {
+    var out = {};
+    var m;
     m = t.match(/\bIMO\s*(\d{7})/); out.imo = m ? m[1] : '';
     m = t.match(/\bMMSI\s*(\d{9})/); out.mmsi = m ? m[1] : '';
     m = t.match(/Call sign\s*([A-Z0-9]{3,8})/); out.callsign = m ? m[1] : '';
@@ -208,19 +252,18 @@
     m = t.match(/Last report\s*([^\n]*?\d{1,2}\s+[A-Za-z]{3}\s+\d{4},?\s+\d{1,2}:\d{2}(?:\s*UTC)?)/);
     out.posTs = m ? P.dayMonYearToTs(m[1]) : null;
     if (out.posTs && out.posTs > now + 10 * 6e4) out.posTs = now;           // 기기 시계가 틀린 경우의 안전장치
-    // 목적지: "Voyage / Destination / Yeosu, South Korea / AIS: KR YOS / Speed" (줄바꿈이 없는 형태도 허용)
-    m = t.match(/Voyage\s*Destination\s*([\s\S]*?)\s*(?:AIS:\s*([\s\S]*?)\s*)?Speed\s*[\d.]/);
+    // 목적지: "Voyage / Destination / Yeosu, South Korea / AIS: KR YOS / Speed(또는 비로그인 때 Position)"
+    m = t.match(/Voyage\s*Destination\s*([\s\S]*?)\s*(?:AIS:\s*([\s\S]*?)\s*)?(?:Speed\s*[\d.]|Position|Last report)/);
     if (m) { out.destText = m[1].replace(/\s+/g, ' ').trim(); out.destCode = (m[2] || '').replace(/\s+/g, ' ').trim(); }
     // ETA 는 선박이 방송할 때만 나온다 ("Not broadcast: ETA." 면 없음)
     if (!/Not broadcast:[^\n]*ETA/i.test(t)) {
       m = t.match(/\bETA\s*\n?\s*([^\n]{4,40})/);
       if (m) { out.etaText = m[1].trim(); out.etaTs = P.dayMonYearToTs(out.etaText) || P.monthDayTimeToTs(out.etaText, now); }
     }
-    m = t.match(/\n\s*([\d.,]+\s*km\s+[NSEW]{1,3}\s+of\s+[^\n]+)\n/); out.nearText = m ? m[1].trim() : '';
+    m = t.match(/\n\s*([\d.,]+\s*km\s+[NSEW]{1,3}\s+of\s+[^\n]+|In the port of [^\n]+)\n/); out.nearText = m ? m[1].trim() : '';
     out.live = /Live\s*·/.test(t);                                          // "Live ·" = 최근 수신 / "Last seen" = 끊김
-    out.ok = true;
     return out;
-  };
+  }
 
   /* ================= VesselFinder 선박 상세 ================= */
 

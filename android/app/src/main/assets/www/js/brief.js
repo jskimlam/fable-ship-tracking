@@ -59,6 +59,8 @@
         ' 부근입니다 (실측 이후 ' + U.num(vw.dr.advNm, 0) + '해리 전진으로 계산).';
     }
     if (vw.fresh === 'stale') html += '<br>⚠️ 실측이 하루 이상 지났습니다. 추정 위치의 오차가 클 수 있으니 갱신해 주세요.';
+    var ws = vw.v.src && vw.v.src.wingo;
+    if (ws && !ws.ok && ws.error === 'login') html += '<br>🔐 Wingo 정밀 위치는 로그인이 필요합니다. ⚙ 설정 → <b>Wingo 로그인 열기</b>에서 무료 계정으로 한 번 로그인해 주세요.';
     return msg('pos', '현재 위치', html);
   }
 
