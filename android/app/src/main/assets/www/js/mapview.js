@@ -228,7 +228,7 @@
       bounds.push([vw.dest.lat, vw.dest.lon]);
     }
     // 실측 지점들 (최근 12개만 점으로, 마지막 것에는 시각 표시)
-    var fixes = vw.v.fixes || [];
+    var fixes = vw.segFixes || vw.v.fixes || [];   // 이번 항차와 이어지는 실측만 점으로 찍는다
     fixes.slice(-12).forEach(function (f, i, arr) {
       var last = i === arr.length - 1;
       L.marker([f.lat, f.lon], { icon: icon('<div class="mk-fix"></div>', [12, 12], [6, 6]), interactive: false, opacity: last ? 1 : 0.6 }).addTo(layer);

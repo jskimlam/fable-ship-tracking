@@ -153,6 +153,9 @@
     for (var i = track.length - 2; i >= 0; i--) {                          // 끝(현재)에서 거꾸로 훑는다
       if (U.distNm(track[i], track[i + 1]) > 0.5) continue;                // 정지 구간이 아님
       var c = track[i];
+      var near = 0;                                                        // c 반경 0.5해리 안의 점 수 (같은 점이 한 번 반복된 것은 정지가 아니다)
+      for (var q = 0; q < track.length; q++) if (U.distNm(track[q], c) <= 0.5) near++;
+      if (near < 3) continue;
       if (U.distNm(c, here) < 3) continue;                                 // 아직 그 자리 근처: 출항 전·직후
       var port = R.nearPort(c, 15);
       if (!port) return null;                                              // 바다 위 대기(투묘)였음 → 기항 아님
@@ -372,17 +375,23 @@
     // 지나온 길: 출항지 → 첫 실측(추정선) + 실측들 사이
     vw.pastEst = [];                                   // 출항지 ~ 첫 실측 (기록이 없어 추정)
     vw.pastTrack = [];                                 // 실측 기록을 이은 선
-    if (fixes.length) {
-      var f0 = fixes[0];
+    var segFx = fixes;                                 // 이번 항차로 이어지는 실측만 쓴다
+    for (var gi = fixes.length - 1; gi > 0; gi--) {    // 끝에서 거꾸로: 기록 공백이 길고 멀리 떨어졌으면 그 앞은 지난 항차/오래된 값
+      if (fixes[gi].t - fixes[gi - 1].t > 12 * 36e5 && U.distNm([fixes[gi].lat, fixes[gi].lon], [fixes[gi - 1].lat, fixes[gi - 1].lon]) > 20) { segFx = fixes.slice(gi); break; }
+    }
+    vw.pastGap = segFx.length < fixes.length;            // 오래된 실측을 선에서 뺐는지
+    vw.segFixes = segFx;                                 // 지도에 점으로 찍을 실측 (오래된 값 제외)
+    if (segFx.length) {
+      var f0 = segFx[0];
       if (vw.origin) {
         vw.pastEst = cached('p|' + vw.origin.id + '|' + f0.lat.toFixed(3) + '|' + f0.lon.toFixed(3), function () {
           return R.fromPort(vw.origin, [f0.lat, f0.lon]);
         });
       }
-      vw.pastTrack = cached('t|' + fixes.length + '|' + f0.t + '|' + fix.t, function () {
+      vw.pastTrack = cached('t|' + segFx.length + '|' + f0.t + '|' + fix.t, function () {
         var pts = [[f0.lat, f0.lon]];
-        for (var i = 1; i < fixes.length; i++) {
-          var a = [fixes[i - 1].lat, fixes[i - 1].lon], b = [fixes[i].lat, fixes[i].lon];
+        for (var i = 1; i < segFx.length; i++) {
+          var a = [segFx[i - 1].lat, segFx[i - 1].lon], b = [segFx[i].lat, segFx[i].lon];
           if (U.distNm(a, b) < 0.05) continue;         // 사실상 같은 자리
           // 실측점은 실제로 배가 있던 자리라 그대로 잇는다. 기록 공백이 길고(30해리+) 직선이 육지를 관통할 때만 우회선으로 메운다
           var seg = (U.distNm(a, b) >= 30 && R.lineHitsLand(a, b)) ? R.seaPath(a, b) : [a, b];
