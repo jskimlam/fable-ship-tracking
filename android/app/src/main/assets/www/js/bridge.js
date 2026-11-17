@@ -18,7 +18,8 @@
   var native = root.FstNative || null;                 // 안드로이드가 주입한 객체 (없으면 null)
 
   B.available = !!native;                              // 직접 조회 가능 여부
-  B.demo = !native && /[?&]demo=1/.test((root.location && root.location.search) || ''); // 예시 데이터 모드
+  B.demo = !native && (/[?&]demo=1/.test((root.location && root.location.search) || '') ||
+    /github\.io$/.test((root.location && root.location.hostname) || ''));   // 예시 데이터 모드 (?demo=1 이거나 GitHub Pages 에서 열었을 때)
 
   // 네이티브가 결과를 돌려줄 때 부르는 전역 함수
   root.FST_NATIVE_CB = function (id, payload) {
