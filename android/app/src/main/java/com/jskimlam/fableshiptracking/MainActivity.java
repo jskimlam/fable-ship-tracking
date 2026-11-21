@@ -105,6 +105,19 @@ public class MainActivity extends Activity {
     /** 화면(JS)에서 부를 수 있는 네이티브 기능 모음 */
     private final class NativeBridge {
 
+        /** 선박 목록 등 앱 상태를 앱 전용 저장소(SharedPreferences)에 보관한다. WebView 의 localStorage 는 앱을 강제 종료하면 마지막 저장이 사라질 수 있어 이중으로 둔다. */
+        @JavascriptInterface
+        public void saveState(String json) {
+            if (json == null) return;
+            getSharedPreferences("fst_state", MODE_PRIVATE).edit().putString("state", json).apply();
+        }
+
+        /** 보관해 둔 앱 상태를 돌려준다. 없으면 빈 문자열. */
+        @JavascriptInterface
+        public String loadState() {
+            return getSharedPreferences("fst_state", MODE_PRIVATE).getString("state", "");
+        }
+
         /** 주소를 직접 열어 값을 읽는다. 결과는 FST_NATIVE_CB(요청id, JSON) 으로 돌려준다. */
         @JavascriptInterface
         public void scrape(final String id, final String url, final String script, final int timeoutMs) {

@@ -71,9 +71,13 @@
 
   // 저장된 상태 불러오기 (깨져 있으면 초기 선대로 시작)
   S.load = function () {
-    var raw = null;
-    try { raw = root.localStorage ? root.localStorage.getItem(KEY) : null; } catch (e) { raw = null; }
-    try { state = raw ? JSON.parse(raw) : null; } catch (e2) { state = null; }
+    // 저장소가 두 곳이다: WebView localStorage + 앱 전용 저장소(네이티브). 더 최근에 저장된 쪽을 쓴다
+    // (localStorage 는 앱을 강제 종료하면 마지막 변경이 사라질 수 있다)
+    function parse(raw) { try { var o = raw ? JSON.parse(raw) : null; return (o && Array.isArray(o.vessels)) ? o : null; } catch (e) { return null; } }
+    var a = null, b = null;
+    try { a = parse(root.localStorage ? root.localStorage.getItem(KEY) : null); } catch (e) { a = null; }
+    try { b = (root.FstNative && typeof root.FstNative.loadState === 'function') ? parse(root.FstNative.loadState()) : null; } catch (e1) { b = null; }
+    state = (a && b) ? ((b.savedAt || 0) > (a.savedAt || 0) ? b : a) : (a || b || null);
     if (!state || !Array.isArray(state.vessels)) state = defaults();
     var d = defaults().settings;                       // 새 버전에서 추가된 설정 항목 보충
     state.settings = state.settings || {};
@@ -90,8 +94,12 @@
 
   // 저장 + 구독자에게 알림
   S.save = function () {
-    try { if (root.localStorage) root.localStorage.setItem(KEY, JSON.stringify(state)); }
+    var json = '';
+    try { state.savedAt = Date.now(); json = JSON.stringify(state); } catch (e0) { json = ''; }
+    try { if (root.localStorage && json) root.localStorage.setItem(KEY, json); }
     catch (e) { /* 저장 공간 부족 등: 화면 동작은 계속한다 */ }
+    try { if (json && root.FstNative && typeof root.FstNative.saveState === 'function') root.FstNative.saveState(json); }   // 앱 전용 저장소에도 기록
+    catch (e3) { /* 네이티브 저장 실패해도 화면은 계속 */ }
     listeners.forEach(function (fn) { try { fn(state); } catch (e) { /* 한 구독자의 오류가 다른 구독자를 막지 않게 */ } });
   };
 
