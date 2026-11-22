@@ -133,7 +133,7 @@
       if (lastBounds.length) map.flyToBounds(L.latLngBounds(lastBounds), { paddingTopLeft: p.tl, paddingBottomRight: p.br, maxZoom: 9, duration: 0.9 });
       return;
     }
-    if (mode === 'view') { viewBoth(vw, seq); return; }
+    if (mode === 'view' || (mode === 'follow' && !from)) { viewBoth(vw, seq); return; }   // 배가 안 움직인 갱신(from 없음)도 배 확대로 빠지지 않고 배+목적지를 보여 준다
     var target = [vw.cur.lat, vw.cur.lon];
     var z = Math.min(10, Math.max(Math.round(map.getZoom()), 8));   // 배 주변이 보이는 확대 수준 (8~10, 사용자가 더 확대해 둔 상태는 존중)
     if (mode === 'follow' && from) {
